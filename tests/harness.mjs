@@ -50,6 +50,7 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
         const beat = move.playing ? (Date.now() - move.startedAt) / (60000 / move.tempo) : -1;
         return beat.toFixed(4) + ' ' + move.tempo.toFixed(3);
     };
+    globalThis.shadow_set_overtake_suppress_master_volume = v => { b.volumeOwned = v; };
     globalThis.host_read_file = p => b.files[p] ?? null;
     globalThis.host_write_file = (p, c) => { b.files[p] = c; return true; };
     globalThis.host_ensure_dir = () => true;

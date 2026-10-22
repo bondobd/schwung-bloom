@@ -42,11 +42,13 @@ test('Capture writes a progression to steps 1-4', async () => {
 
 test('a held step takes its own gate and volume', async () => {
     bloom.step(0); await bloom.run(10);
+    assert.equal(b.volumeOwned, 1, 'Volume knob kept from Move while a step is held');
     bloom.turn(CC.KNOB1 + 3, -3);                              // gate 75%
     bloom.turn(CC.KNOB1 + 4, -4);                              // volume 80%
     bloom.turn(CC.KNOB1 + 5, 6);                               // bass: DEFAULT -> ON -> OFF
     await bloom.run(10);
     bloom.step(0, false); await bloom.run(1500);
+    assert.equal(b.volumeOwned, 0, 'and handed back on release');
     const step = JSON.parse(Object.entries(b.files).find(([k]) => k.includes('/set-'))[1]).mems[0];
     assert.equal(step.gate, 0.75);
     assert.equal(step.vol, 80);
@@ -79,14 +81,14 @@ test('Play locks the progression to Move\'s clock and toggles', async () => {
     assert.deepEqual(bloom.hanging(), []);
 });
 
-test('hold a track button and turn Volume: Move gets the track press and the volume turn', async () => {
+test('hold a track button and turn Volume: Move gets the track button held, and the knob only once', async () => {
     b.controls.length = 0;
     const raw = [];
     const inject = globalThis.move_midi_inject_to_move;
     globalThis.move_midi_inject_to_move = p => { if (p[0] === 0x0b) raw.push(p[2] + ':' + p[3]); inject(p); };
     bloom.button(42); bloom.turn(79, 2); bloom.button(42, false);
     globalThis.move_midi_inject_to_move = inject;
-    assert.deepEqual(raw, ['42:127', '79:1', '79:1', '42:0']);
+    assert.deepEqual(raw, ['42:127', '42:0'], 'Bloom does not copy the Volume knob; Schwung already passes it to Move');
 });
 
 test('leaving Bloom hands Move back the track it had', async () => {

@@ -627,12 +627,13 @@ function stepDown(s, vel) {
     const m = st.mems[s];
     if (!m) return;
     st.heldStep = s;
+    ownVolumeKnob(true);
     if (st.latched && st.rootPad === 32 + s) { stopHeld(); return; }
     soundChord(32 + s, m, vel, perfFor(m));
 }
 
 function stepUp(s) {
-    if (st.heldStep === s) { st.heldStep = -1; st.dirty = true; }
+    if (st.heldStep === s) { st.heldStep = -1; st.dirty = true; ownVolumeKnob(false); }
     releaseChord(32 + s);
 }
 
@@ -1067,8 +1068,10 @@ function padUp(i) {
 /*
  * Track buttons work as on Move, which Bloom does for you by pressing Move's own buttons:
  * hold one and turn Volume for that track's volume, Mute + track to mute it, and Delete +
- * track to delete its playing clip (Shift+Undo is Move's Undo). Move selects a track while
- * its button is down, so Bloom selects the chord track again afterwards.
+ * track to delete its playing clip (Shift+Undo is Move's Undo). Schwung always hands the
+ * Volume knob to Move, so for track volume Bloom only holds Move's track button down and
+ * Move does the rest. Move selects a track while its button is down, so Bloom selects the
+ * chord track again afterwards.
  */
 function trackDb(t) {
     const v = st.tracks[t] && st.tracks[t].volumeDb;
@@ -1089,15 +1092,23 @@ function trackDown(t) {
         return;
     }
     st.trackHeld = t;
-    st.trackPressed = false;
+    move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 127]);
+    st.trackPressed = true;
     toast('TRACK ' + (t + 1) + ' VOLUME', trackDb(t) || 'TURN VOLUME KNOB');
 }
 
-function trackVolume(raw) {
+function trackVolume() {
     const t = st.trackHeld;
-    if (!st.trackPressed) { move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 127]); st.trackPressed = true; }
-    move_midi_inject_to_move([0x0b, 0xb0, CC_VOLUME, raw]);
     toast('TRACK ' + (t + 1) + ' VOLUME', trackDb(t) || 'CHANGING');
+}
+
+/*
+ * While a step is held the Volume knob sets that step's volume, so Schwung is asked to keep
+ * it from Move (which would change the master volume too). Raised on the step press, before
+ * any volume touch, as Schwung requires.
+ */
+function ownVolumeKnob(on) {
+    if (typeof shadow_set_overtake_suppress_master_volume === 'function') shadow_set_overtake_suppress_master_volume(on ? 1 : 0);
 }
 
 function trackUp(t) {
@@ -1582,7 +1593,7 @@ globalThis.onMidiMessageInternal = function (data) {
     else if (d1 === CC_UNDO && press) undo();
     else if (d1 === CC_MUTE) st.mute = press;
     else if (d1 >= CC_TRACK1 - 3 && d1 <= CC_TRACK1) { if (press) trackDown(CC_TRACK1 - d1); else trackUp(CC_TRACK1 - d1); }
-    else if (d1 === CC_VOLUME && st.trackHeld >= 0) trackVolume(d2);
+    else if (d1 === CC_VOLUME && st.trackHeld >= 0) trackVolume();
     else if (d1 === CC_LOOP && press && st.shift) {
         cfg.strike = !cfg.strike;
         cfg.dirtyAt = Date.now();
@@ -1638,6 +1649,7 @@ globalThis.onUnload = function () {
     allNotesOff();
     while (st.out.length) move_midi_inject_to_move(st.out.shift());
     restoreHomeTrack();
+    ownVolumeKnob(false);
     delete cfg.dirtyAt;
     saveSettings();
     if (st.memsAt) saveMems();
