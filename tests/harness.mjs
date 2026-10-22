@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const SET_ID = '6b99d1a6-371b-420e-9684-ae71874b8697';
 
-export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, settings = {}, inputModes = ['auto', 'auto', 'auto', 'auto'] } = {}) {
+export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, settings = {}, inputModes = ['auto', 'auto', 'auto', 'auto'], countIn = false } = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'bloom-'));
     const ui = readFileSync(join(here, '../src/ui.js'), 'utf8')
         .replace("'/data/UserData/schwung/shared/input_filter.mjs'", JSON.stringify(pathToFileURL(join(here, 'stubs/input_filter.mjs')).href))
@@ -19,14 +19,15 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
     writeFileSync(join(dir, 'ui.mjs'), ui);
     copyFileSync(join(here, '../src/chords.mjs'), join(dir, 'chords.mjs'));
 
-    const move = { playing: false, selected: 0, key, scale, tempo };
+    const move = { playing: false, selected: 0, key, scale, tempo, startedAt: 0, clock: true };
     const b = {
         move, midi: [], controls: [], leds: new Map(), buttons: new Map(), spoken: [], screen: [],
         files: {
             '/data/UserData/schwung/active_set.txt': SET_ID + '\nSet 1\n',
             [`/data/UserData/UserLibrary/Sets/${SET_ID}/Set 1/Song.abl`]:
                 inputModes.map(m => `{"midiInputMode": ${m === 'auto' ? '"auto"' : '[' + m + ']'}}`).join(','),
-            '/data/UserData/schwung/config/bloom/settings.json': JSON.stringify({ v: 3, ...settings })
+            '/data/UserData/schwung/config/bloom/settings.json': JSON.stringify({ v: 3, ...settings }),
+            '/data/UserData/settings/Settings.json': JSON.stringify({ isUsingCountIn: countIn })
         }
     };
     globalThis.__bloom = b;
@@ -35,13 +36,20 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
         if (p[3] !== 127) return;
         b.controls.push(p[2]);
         if (p[2] >= 40 && p[2] <= 43) move.selected = 43 - p[2];
-        if (p[2] === 86) setTimeout(() => { move.playing = true; }, 20);
-        if (p[2] === 85) { const was = move.playing; setTimeout(() => { move.playing = !was; }, 20); }
+        const start = () => { move.playing = true; move.startedAt = Date.now(); };
+        if (p[2] === 86) setTimeout(start, 20);
+        if (p[2] === 85) { const was = move.playing; setTimeout(() => (was ? (move.playing = false) : start()), 20); }
     };
     globalThis.host_get_move_info = () => ({
         valid: 1, playing: move.playing, rootNote: move.key, scale: move.scale, tempo: move.tempo, tsUpper: 4,
         selectedTrack: move.selected, tracks: [0, 1, 2, 3].map(i => ({ selected: i === move.selected }))
     });
+    /* Bloom's DSP: Move's beat position while playing, -1 when stopped. */
+    globalThis.host_module_get_param = key => {
+        if (key !== 'clock' || !move.clock) return null;
+        const beat = move.playing ? (Date.now() - move.startedAt) / (60000 / move.tempo) : -1;
+        return beat.toFixed(4) + ' ' + move.tempo.toFixed(3);
+    };
     globalThis.host_read_file = p => b.files[p] ?? null;
     globalThis.host_write_file = (p, c) => { b.files[p] = c; return true; };
     globalThis.host_ensure_dir = () => true;

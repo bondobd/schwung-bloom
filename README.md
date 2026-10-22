@@ -15,7 +15,7 @@ No laptop, no music theory required, and nothing to route: Bloom plays the instr
 - **Write a progression for your track.** Press Capture for a fresh 4 or 8 chord idea in your key, built from the progressions songs actually use. Turn the wheel for a new take on every chord until it clicks.
 - **Shape every chord.** Hold a step and spin the wheel for a new voicing of just that chord, transpose it, change its octave, and set how long it lasts.
 - **Program a performance.** Each step remembers how it plays: chord, strum, two-octave strum, arp, pulse, gate, volume, bass, spread and feel. Your progression becomes a part, not a list of chords.
-- **Perform.** Play starts Move and your progression together. Loop a few steps, jump around with the arrows, and play over the top on the pads.
+- **Perform.** Play starts Move and your progression together, locked to Move's clock so they never drift apart. Loop a few steps, jump around with the arrows, and play over the top on the pads.
 - **Pick, then strike.** In pick mode, chord pads choose silently and the top row plays the chosen chord in eight voicings, so one hand picks while the other plays.
 - **Record it back.** Record lays the progression onto your chord track, then the bass onto your bass track, as normal Move clips you can keep editing.
 
@@ -51,6 +51,15 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Delete + chord pad | Stop a held chord |
 | Shift + Delete | All notes off |
 
+**Move's tracks**, with the same gestures as on Move (Bloom presses Move's buttons for you). The chord track's button is lit in the major colour, the bass track's in the minor colour.
+
+| Control | Does |
+|---|---|
+| Hold a track button + turn Volume | That track's volume |
+| Mute + track button | Mute or unmute the track |
+| Delete + track button | Delete the track's playing clip |
+| Shift + Undo | Move's own Undo (plain Undo is Bloom's, for steps) |
+
 **Progressions** (the 16 step buttons are chord slots, saved per Set)
 
 | Control | Does |
@@ -62,8 +71,8 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Undo | Take back the last change |
 | Wheel (nothing held) | New take on every chord, left goes back |
 | Left / Right | Previous or next chord |
-| Play | Move and the progression together, or stop everything |
-| Shift + Play | The progression on its own |
+| Play | Start Move and play the progression (the Loop range) locked to Move's clock; again to stop |
+| Shift + Play | The same with every step, ignoring the Loop range |
 | Hold Loop, tap two steps | Loop just those steps (tap Loop alone for all) |
 | Record | Record chords to the chord track, then bass to the bass track |
 
@@ -102,7 +111,7 @@ The bass (knob 6 on, Shift + knob 6 to choose where) can play on the **chord tra
 ## Recording tips
 
 - Select empty clip slots on your chord and bass tracks first; Move records into the selected slot.
-- Turn Move's count-in off if your chords land a bar late.
+- Count-in is fine: Bloom waits for it and starts the chords when Move starts recording.
 - Record plays your Loop range, with every step's own settings, so what you hear is what you get.
 
 ## Known issues
@@ -121,6 +130,7 @@ npm test                    # chord theory and UI tests, with Schwung's host stu
 
 - `src/ui.js` is the instrument: pads, knobs, the player, recording, LEDs and screen.
 - `src/chords.mjs` is the pure chord theory: naming, voicing, scales, progressions and variations.
+- `dsp/clock.c` is a tiny native plugin that hands the UI Move's transport position (`get_beat_position`), so playback and recording sit on Move's beat grid. `./scripts/build-dsp.sh` builds it with Docker; the header in `dsp/vendor` is Schwung's (MIT).
 - Schwung caches imported modules until Move restarts, so the build gives `chords.mjs` a content-hashed name and updates take effect without a restart.
 
 Releases are cut by tagging `vX.Y.Z` (the version in `package.json`, `src/module.json` and `release.json` must match); GitHub Actions tests, builds and attaches `bloom-module.tar.gz`.

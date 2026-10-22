@@ -99,23 +99,22 @@
             "title": "Play and record",
             "lines": [
                 "Play: Move and the",
-                "progression start",
-                "together. Play again",
-                "stops everything.",
-                "Shift+Play: chords",
-                "only.",
+                "loop range start",
+                "together, in time.",
+                "Play again: stop.",
+                "Shift+Play: every",
+                "step.",
                 "",
                 "Hold Loop, tap first",
                 "and last step: loop",
                 "those. Loop alone:",
                 "all steps.",
                 "",
-                "Record: records the",
-                "steps to the chord",
-                "track, then the bass",
-                "to the bass track.",
-                "Pick empty clip",
-                "slots first."
+                "Record: chords to",
+                "the chord track,",
+                "then bass to the",
+                "bass track. Count-in",
+                "is fine."
             ]
         },
         {
@@ -171,6 +170,19 @@
                 "track's MIDI In to",
                 "a channel: Shift +",
                 "track button."
+            ]
+        },
+        {
+            "title": "Track buttons",
+            "lines": [
+                "Hold a track button",
+                "and turn Volume:",
+                "track volume.",
+                "Mute+track: mute.",
+                "Delete+track: delete",
+                "its playing clip.",
+                "Shift+Undo: Move's",
+                "own Undo."
             ]
         }
     ]

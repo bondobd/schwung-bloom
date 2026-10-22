@@ -20,8 +20,8 @@
  * Steps: chord memories, kept per Move Set. Shift+step saves the last chord, step plays it,
  *        Delete+step clears, Undo takes back the last change.
  * Capture: new 4-chord progression in the key (Shift+Capture: 8).
- * Play: starts Move and the progression together, or stops whatever is playing.
- * Shift+Play: just the progression.
+ * Play: starts Move and the progression (the Loop range) together, locked to Move's clock;
+ *   again to stop. Shift+Play: the same with every step.
  * Loop: hold it and tap the first and last step to play only those; tap Loop alone for all steps.
  * Buttons follow Move's own conventions:
  *   -/+          octave (Shift: move the chord rows by a semitone)
@@ -31,6 +31,8 @@
  *                the wheel or Left/Right gives a new take on the chord, wheel click makes it plain
  * Wheel with nothing held: a new take on every chord. While playing a chord pad, it inverts it.
  * Delete+chord pad: stop a held chord. Shift+Delete: all notes off. Shift+knob 8: pad colours.
+ * Track buttons, as on Move: hold + Volume knob = track volume, Mute + track = mute,
+ *   Delete + track = delete that track's playing clip, Shift+Undo = Move's Undo.
  * Record: records the steps onto the chord track, then the bass onto the bass track.
  * Knobs (touch one to see it on screen):
  *   1 play mode   2 step length  3 strum speed or arp rate  4 sound: on / muted / hold
@@ -49,7 +51,7 @@ import {
 const PAD0 = 68, STEP0 = 16;
 const CC_JOG = 14, CC_JOG_CLICK = 3, CC_KNOB1 = 71, CC_KNOB8 = 78;
 const CC_SHIFT = 49, CC_DELETE = 119, CC_UNDO = 56, CC_LOOP = 58, CC_CAPTURE = 52;
-const CC_DOWN = 54, CC_UP = 55, CC_LEFT = 62, CC_RIGHT = 63, CC_PLAY = 85, CC_REC = 86, CC_VOLUME = 79;
+const CC_DOWN = 54, CC_UP = 55, CC_LEFT = 62, CC_RIGHT = 63, CC_PLAY = 85, CC_REC = 86, CC_VOLUME = 79, CC_MUTE = 88;
 const OUT_PER_TICK = 6;
 const LONG_PRESS_MS = 450;
 const BIG_FONT = '/data/UserData/schwung/host/fonts/tamzen-20.png';
@@ -126,7 +128,9 @@ const st = {
     sounding: new Map(),        // pad key -> [{ch, note, on}]
     queue: [],                  // pending note-ons {at, pad, ch, note, vel, entry}
     arp: null,                  // {pad, base, notes, ch, vel, i, dir, next, on, offAt}
-    player: null,               // {order, i, next, waiting, linked (stops with Move), startBy, step}
+    player: null,               // a run (see newRun) plus waiting/linked/startBy for Play
+    clock: undefined,           // {beat, at} from the DSP; null when it doesn't answer
+    playingSince: 0, countInInClock: null,
     range: null,                // {a, b}: steps the progression plays, null for all
     loopHeld: false, loopPicks: [],
     sel: null,                  // pick-then-strike: {pad, pc, q} of the picked chord
@@ -143,6 +147,8 @@ const st = {
     out: [], live: new Set(), recheck: [],  // paced MIDI out, notes Move is sounding, note-offs to repeat
     plusMinus: null,            // {dir, at, fired}: a -/+ press on a held step, for long press
     navStep: -1,
+    mute: false,
+    trackHeld: -1, trackPressed: false,  // a track button held in Bloom, and whether Move has been sent its press
     select: { target: -1, tries: 0, at: 0 },
     dirty: true, ticks: 0, btnLeds: {}
 };
@@ -195,7 +201,19 @@ function loadMems() {
     st.mems = new Array(16).fill(null);
     st.undo = []; st.takes = []; st.stepTakes = [];
     st.range = saved && saved.range && saved.range.a >= 0 && saved.range.b < 16 ? saved.range : null;
-    if (saved && Array.isArray(saved.mems)) saved.mems.slice(0, 16).forEach((m, i) => { if (m && Array.isArray(m.notes)) st.mems[i] = m; });
+    if (saved && Array.isArray(saved.mems)) saved.mems.slice(0, 16).forEach((m, i) => { if (m && Array.isArray(m.notes)) st.mems[i] = repairMem(m); });
+}
+
+/*
+ * `bass` is a step's bass note. Bloom 0.9 also stored the step's bass on/off setting there,
+ * which made every saved step play bass and could replace the note with true/false.
+ */
+function repairMem(m) {
+    if (typeof m.bass === 'number' && m.bassOn !== undefined) return m;
+    const fixed = { ...m };
+    if (typeof m.bass === 'boolean') fixed.bassOn = m.bass;
+    if (typeof fixed.bass !== 'number') fixed.bass = renderChord(fixed).bass;
+    return fixed;
 }
 
 function saveMems() { st.memsAt = 0; writeJson(STATE_DIR + '/set-' + st.setId + '.json', { mems: st.mems, range: st.range }); }
@@ -354,7 +372,7 @@ function perfFor(m) {
     const own = k => (m && m[k] != null ? m[k] : null);
     return {
         mode: own('mode') ?? cfg.mode, rate: own('rate') ?? cfg.rate, strumMs: own('strumMs') ?? cfg.strumMs,
-        spread: own('spread') ?? cfg.spread, feel: own('feel') ?? cfg.feel, bass: own('bass') ?? cfg.bass,
+        spread: own('spread') ?? cfg.spread, feel: own('feel') ?? cfg.feel, bass: own('bassOn') ?? cfg.bass,
         gate: own('gate') ?? 1, vol: (own('vol') ?? 100) * cfg.vol / 10000
     };
 }
@@ -673,7 +691,7 @@ function generate(n) {
     st.takes = []; st.stepTakes = [];
     stopHeld();
     st.range = null;
-    st.player = { order: memOrder(), i: 0, next: Date.now(), waiting: false, linked: false };
+    startPreview();
     toast('NEW: ' + keyLabel(), mems.map(m => m.name).join(' '));
 }
 
@@ -716,12 +734,7 @@ function navigate(dir) {
     const order = playOrder();
     if (!order.length) { toast('PROGRESSION', 'CAPTURE OR SAVE CHORDS'); return; }
     const p = st.player;
-    if (p && !p.waiting) {
-        const cur = (p.i - 1 + order.length) % order.length;
-        p.i = (cur + dir + order.length) % order.length;
-        p.next = Date.now();
-        return;
-    }
+    if (p && !p.waiting) { jumpRun(p, dir); return; }
     let i = order.indexOf(st.navStep);
     i = i < 0 ? (dir > 0 ? 0 : order.length - 1) : (i + dir + order.length) % order.length;
     st.navStep = order[i];
@@ -748,12 +761,103 @@ function undo() {
 /* ---------- the player ---------- */
 
 /* Shift+Play: just the progression, without Move's transport. */
-function togglePlayer() {
-    if (st.player) { stopPlayer('STOPPED'); return; }
-    const order = playOrder();
-    if (!order.length) { toast('PROGRESSION', 'CAPTURE OR SAVE CHORDS'); return; }
-    st.player = { order, i: 0, next: Date.now(), waiting: false, linked: false };
-    toast('PROGRESSION', order.length + ' CHORDS');
+/*
+ * Move's clock, from Bloom's DSP (dsp/clock.c): beats since Move's transport started, or -1.
+ * Reading it costs a round trip to the audio thread, so it is read every few ticks and
+ * interpolated in between at the current tempo.
+ */
+const CLOCK_READ_TICKS = 12;
+
+function readClock() {
+    if (typeof host_module_get_param !== 'function') return;
+    const raw = host_module_get_param('clock');
+    if (!raw) { st.clock = null; return; }
+    const [beat, bpm] = String(raw).split(' ').map(Number);
+    if (!isFinite(beat)) return;
+    st.clock = { beat, at: Date.now() };
+    if (bpm > 20 && bpm < 400) st.tempo = bpm;
+}
+
+function clockBeat() {
+    const c = st.clock;
+    if (!c || c.beat < 0) return -1;
+    return c.beat + (Date.now() - c.at) / beatMs();
+}
+
+/* Count-in is a Move setting; Bloom only needs to know whether it is on. */
+function countInOn() {
+    const s = readJson('/data/UserData/settings/Settings.json');
+    return !!(s && s.isUsingCountIn);
+}
+
+/*
+ * A run plays steps by position, not by timers: where it is comes from Move's clock when Move
+ * plays (so it can't drift from Move), otherwise from the time it started. Each tick works out
+ * which step that position falls in and sounds it when it changes.
+ *   origin   beat (clock) or Date.now() ms (free) where the run's first step starts
+ *   whole    play every saved step, ignoring the Loop range
+ *   once     stop after one pass (recording)
+ */
+function newRun(opts) { return { origin: 0, clock: false, cur: null, offBeat: -1, step: undefined, ...opts }; }
+
+function runOrder(r) { return r.whole ? memOrder() : playOrder(); }
+
+function runPos(r) {
+    if (r.clock) { const b = clockBeat(); return b < 0 ? -1 : b - r.origin; }
+    return (Date.now() - r.origin) / beatMs();
+}
+
+/* Re-anchor a run so it carries on from the same position on a different time base. */
+function rebase(r, useClock) {
+    const pos = Math.max(0, runPos(r));
+    r.clock = useClock;
+    r.origin = useClock ? clockBeat() - pos : Date.now() - pos * beatMs();
+}
+
+/* Sound whatever the run should be playing now; returns false once a single pass has ended. */
+function stepRun(r) {
+    const order = runOrder(r);
+    if (!order.length) return false;
+    const pos = runPos(r);
+    if (pos < 0) return true;
+    const lens = order.map(s => memBeats(st.mems[s]));
+    const total = lens.reduce((x, y) => x + y, 0);
+    if (r.once && pos >= total) return false;
+    const lap = Math.floor(pos / total);
+    let at = pos - lap * total, k = 0;
+    while (k < order.length - 1 && at >= lens[k]) at -= lens[k++];
+    if (r.offBeat >= 0 && pos >= r.offBeat) { r.offBeat = -1; if (st.rootPad === PLAYER_PAD) stopHeld(); }
+    const id = lap * 64 + k;
+    if (id === r.cur || st.heldStep >= 0) return true;
+    r.cur = id;
+    const s = order[k], m = st.mems[s], perf = perfFor(m);
+    r.step = s;
+    soundChord(PLAYER_PAD, m, 100, perf);
+    r.offBeat = perf.gate < 1 ? pos - at + lens[k] * perf.gate : -1;
+    return true;
+}
+
+/* Jump the run to the previous or next step, keeping time. */
+function jumpRun(r, dir) {
+    const order = runOrder(r);
+    if (!order.length) return;
+    const lens = order.map(s => memBeats(st.mems[s]));
+    const total = lens.reduce((x, y) => x + y, 0);
+    const pos = Math.max(0, runPos(r));
+    let at = pos % total, k = 0;
+    while (k < order.length - 1 && at >= lens[k]) at -= lens[k++];
+    const target = (k + dir + order.length) % order.length;
+    const startOf = i => lens.slice(0, i).reduce((x, y) => x + y, 0);
+    const shift = startOf(target) - (startOf(k) + at);
+    r.origin -= r.clock ? shift : shift * beatMs();
+    r.cur = null;
+}
+
+function startPlayer(opts) {
+    if (!memOrder().length) { toast('PROGRESSION', 'CAPTURE OR SAVE CHORDS'); return false; }
+    if (st.rootPad === PLAYER_PAD) stopHeld();
+    st.player = newRun(opts);
+    return true;
 }
 
 function stopPlayer(why) {
@@ -762,19 +866,26 @@ function stopPlayer(why) {
     if (why) toast('PROGRESSION', why);
 }
 
-/* Play: Move's transport and the progression together, starting on chord 1. */
-function playButton(chordsOnly) {
-    if (st.player || st.movePlaying) {
+/* Bloom alone, with Move stopped: from now. With Move playing: from its next bar. */
+function startPreview() {
+    const b = clockBeat();
+    if (st.movePlaying && b >= 0) return startPlayer({ clock: true, origin: Math.ceil(b / st.beatsPerBar) * st.beatsPerBar });
+    return startPlayer({ origin: Date.now() });
+}
+
+/*
+ * Play: start Move and the progression together from the Loop range's first step, or stop
+ * everything. Shift+Play: the same with every step, ignoring the Loop range.
+ */
+function playButton(whole) {
+    if (st.movePlaying || (st.player && st.player.linked)) {
         if (st.movePlaying) pressButton(CC_PLAY);
         stopPlayer();
         return;
     }
-    if (chordsOnly) { togglePlayer(); return; }
-    const order = playOrder();
-    if (!order.length) { pressButton(CC_PLAY); return; }
-    if (st.rootPad === PLAYER_PAD) stopHeld();
-    st.player = { order, i: 0, next: Date.now(), waiting: true, linked: true, startBy: Date.now() + 1500 };
+    if (!startPlayer({ linked: true, whole, waiting: true, startBy: Date.now() + 1500 })) return;
     pressButton(CC_PLAY);
+    toast(whole ? 'WHOLE PROGRESSION' : 'PLAY', st.range && !whole ? 'STEPS ' + (st.range.a + 1) + ' TO ' + (st.range.b + 1) : memOrder().length + ' CHORDS');
 }
 
 /* Loop released: the steps tapped while it was held become the range; none means all steps. */
@@ -789,48 +900,48 @@ function loopReleased() {
         toast('LOOP', 'ALL STEPS');
     }
     st.memsAt = Date.now();
-    if (st.player) { st.player.i = 0; st.player.next = Date.now(); }
+    const p = st.player;
+    if (p) { p.origin = p.clock ? clockBeat() : Date.now(); p.cur = null; }
 }
 
-/* The progression follows Move's transport: it restarts on chord 1 when Move starts, and a Play-started one stops with Move. */
+/*
+ * Move's transport, every tick. A run waiting for Move locks to its clock when it starts
+ * (beat 0 is bar 1); a Play-started run stops with Move; a preview carries on by itself.
+ */
 function followTransport() {
     if (typeof host_get_move_info !== 'function') return;
     const mi = host_get_move_info();
     if (!mi || !mi.valid) return;
     const playing = !!mi.playing;
+    if (playing && !st.movePlaying) st.playingSince = Date.now();
     const p = st.player;
-    if (p && p.waiting && p.startBy && Date.now() > p.startBy) { p.waiting = false; p.next = Date.now(); }
+    if (p && !st.bounce) {
+        if (p.waiting && playing && clockBeat() >= 0) { p.waiting = false; p.clock = true; p.origin = 0; p.cur = null; }
+        else if (p.waiting && p.startBy && Date.now() > p.startBy) { p.waiting = false; p.origin = Date.now(); }
+        else if (!p.waiting && !p.clock && playing && clockBeat() >= 0) rebase(p, true);
+        else if (p.clock && clockBeat() < 0) { if (p.linked) stopPlayer(); else rebase(p, false); }
+    }
     if (playing === st.movePlaying) return;
     st.movePlaying = playing;
-    if (!p || st.bounce) return;
-    if (playing) { p.i = 0; p.next = Date.now(); p.waiting = false; }
-    else if (p.linked) stopPlayer();
+    if (!playing && p && p.linked && !st.bounce) stopPlayer();
     st.dirty = true;
 }
 
-/* Holding a step pauses the progression on that chord. */
 function tickPlayer() {
     const p = st.player;
-    if (p && p.offAt && Date.now() >= p.offAt) { p.offAt = 0; if (st.rootPad === PLAYER_PAD) stopHeld(); }
-    if (!p || p.waiting || st.heldStep >= 0 || Date.now() < p.next) return;
-    p.order = playOrder();
-    if (!p.order.length) { st.player = null; return; }
-    const s = p.order[p.i % p.order.length];
-    const m = st.mems[s];
-    p.step = s;
-    const perf = perfFor(m), dur = beatMs() * memBeats(m);
-    soundChord(PLAYER_PAD, m, 100, perf);
-    p.offAt = perf.gate < 1 ? Date.now() + dur * perf.gate : 0;
-    p.i++;
-    p.next += dur;
-    if (p.next < Date.now()) p.next = Date.now();
+    if (!p || p.waiting) return;
+    if (!stepRun(p)) stopPlayer();
 }
 
 /* ---------- recording onto Move ---------- */
 
 /*
- * One pass per track: stop Move, select the track, press Record, play the steps once
- * when Move starts, then press Play to stop. Chords first, then the bass on its own track.
+ * One pass per track: stop Move, select the track, press Record, and play the steps once
+ * against Move's clock, then press Play to stop. Chords first, then the bass on its own track.
+ *
+ * With count-in on, Move reports playing a bar before it records. Whether its clock counts
+ * that bar isn't documented, so the first pass measures it: a clock that starts with "playing"
+ * includes the count-in (start the chords a bar in), one that starts a bar later doesn't.
  */
 function startBounce() {
     const order = playOrder();
@@ -842,7 +953,7 @@ function startBounce() {
     const passes = [{ track: cfg.chordCh, parts: { chords: true, bass: bassOnChords() }, label: 'CHORDS' }];
     if (anyBass && !bassOnChords()) passes.push({ track: cfg.bassCh, parts: { chords: false, bass: true }, label: 'BASS' });
     const now = Date.now();
-    st.bounce = { passes, pass: 0, stage: 'stop', pressed: false, at: now, deadline: now + 2500, order, i: 0, parts: passes[0].parts };
+    st.bounce = { passes, pass: 0, stage: 'stop', pressed: false, at: now, deadline: now + 2500, parts: passes[0].parts, countIn: countInOn() };
     st.dirty = true;
 }
 
@@ -857,6 +968,17 @@ function endBounce(title, value) {
 function cancelBounce() {
     if (st.movePlaying) pressButton(CC_PLAY);
     endBounce('RECORDING', 'CANCELLED');
+}
+
+/* Where a recording pass's first chord goes, once Move's clock has started. */
+function bounceOrigin(b) {
+    if (!b.countIn) return 0;
+    if (st.countInInClock == null) {
+        const gap = (b.clockAt - (st.playingSince || b.clockAt)) / beatMs();
+        st.countInInClock = gap < st.beatsPerBar / 2;
+        console.log('bloom: count-in ' + (st.countInInClock ? 'is' : 'is not') + ' in Move\'s clock (gap ' + gap.toFixed(2) + ' beats)');
+    }
+    return st.countInInClock ? st.beatsPerBar : 0;
 }
 
 function tickBounce() {
@@ -874,27 +996,26 @@ function tickBounce() {
         pressButton(CC_REC);
         b.stage = 'wait'; b.deadline = now + 8000;
     } else if (b.stage === 'wait') {
-        if (st.movePlaying) {
-            const total = b.order.reduce((a, s) => a + memBeats(st.mems[s]), 0);
-            b.stage = 'play'; b.i = 0; b.next = now; b.end = now + total * beatMs(); b.released = false; b.parts = pass.parts;
+        b.parts = pass.parts;
+        const bar = st.beatsPerBar * beatMs();
+        if (st.movePlaying && clockBeat() >= 0) {
+            b.clockAt = now;
+            b.run = newRun({ clock: true, origin: bounceOrigin(b), once: true });
+            b.stage = 'play';
+        } else if (st.movePlaying && now - (st.playingSince || now) > (b.countIn ? bar : 0) + 600) {
+            console.log('bloom: no clock from Move, recording on Bloom\'s own timing');
+            b.run = newRun({ origin: (st.playingSince || now) + (b.countIn ? st.beatsPerBar * beatMs() : 0), once: true });
+            b.stage = 'play';
         } else if (now > b.deadline) endBounce('RECORD', 'MOVE DID NOT START');
     } else if (b.stage === 'play') {
-        if (b.i < b.order.length && now >= b.next) {
-            const s = b.order[b.i], m = st.mems[s];
-            b.step = s;
-            const perf = perfFor(m), dur = beatMs() * memBeats(m);
-            soundChord(PLAYER_PAD, m, 100, perf);
-            b.offAt = perf.gate < 1 ? now + dur * perf.gate : 0;
-            b.i++;
-            b.next += dur;
-        }
-        if (b.offAt && now >= b.offAt) { b.offAt = 0; if (st.rootPad === PLAYER_PAD) stopHeld(); }
-        if (!b.released && now >= b.end - 15) { stopHeld(); allNotesOff(); b.released = true; }
-        if (now >= b.end) { pressButton(CC_PLAY); b.stage = 'after'; b.deadline = now + 3000; }
+        if (stepRun(b.run)) { b.step = b.run.step; return; }
+        stopHeld(); allNotesOff();
+        pressButton(CC_PLAY);
+        b.stage = 'after'; b.deadline = now + 3000;
     } else if (b.stage === 'after') {
         if (st.movePlaying && now < b.deadline) return;
         if (b.pass + 1 < b.passes.length) {
-            b.pass++; b.stage = 'select'; b.at = now + 400; b.deadline = now + 3000; b.step = undefined;
+            b.pass++; b.stage = 'select'; b.at = now + 400; b.deadline = now + 3000; b.step = undefined; b.run = null;
         } else endBounce('RECORDED', b.passes.map(p => p.label + ' T' + (p.track + 1)).join(' + '));
     }
     st.dirty = true;
@@ -939,6 +1060,51 @@ function padUp(i) {
         return;
     }
     releaseChord(i);
+}
+
+/* ---------- Move's track buttons ---------- */
+
+/*
+ * Track buttons work as on Move, which Bloom does for you by pressing Move's own buttons:
+ * hold one and turn Volume for that track's volume, Mute + track to mute it, and Delete +
+ * track to delete its playing clip (Shift+Undo is Move's Undo). Move selects a track while
+ * its button is down, so Bloom selects the chord track again afterwards.
+ */
+function trackDb(t) {
+    const v = st.tracks[t] && st.tracks[t].volumeDb;
+    return typeof v === 'number' && v > -100 ? v.toFixed(1) + ' DB' : '';
+}
+
+function trackDown(t) {
+    if (st.del) {
+        pressButton(CC_TRACK1 - t);
+        pressButton(CC_DELETE);
+        requestSelect();
+        toast('DELETED T' + (t + 1) + ' CLIP', 'SHIFT+UNDO: BRING BACK');
+        return;
+    }
+    if (st.mute) {
+        st.controlQueue.push([0x0b, 0xb0, CC_MUTE, 127], [0x0b, 0xb0, CC_TRACK1 - t, 127], [0x0b, 0xb0, CC_TRACK1 - t, 0], [0x0b, 0xb0, CC_MUTE, 0]);
+        toast('MUTE', 'TRACK ' + (t + 1));
+        return;
+    }
+    st.trackHeld = t;
+    st.trackPressed = false;
+    toast('TRACK ' + (t + 1) + ' VOLUME', trackDb(t) || 'TURN VOLUME KNOB');
+}
+
+function trackVolume(raw) {
+    const t = st.trackHeld;
+    if (!st.trackPressed) { move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 127]); st.trackPressed = true; }
+    move_midi_inject_to_move([0x0b, 0xb0, CC_VOLUME, raw]);
+    toast('TRACK ' + (t + 1) + ' VOLUME', trackDb(t) || 'CHANGING');
+}
+
+function trackUp(t) {
+    if (st.trackHeld !== t) return;
+    if (st.trackPressed) { move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 0]); requestSelect(); }
+    st.trackHeld = -1;
+    st.trackPressed = false;
 }
 
 /* ---------- knobs and jog ---------- */
@@ -1107,10 +1273,10 @@ function stepKnob(s, k, delta) {
     else if (k === 2) next.strumMs = cycle(STRUM_MS, own('strumMs'), dir);
     else if (k === 3) next.gate = cycle(GATES, perf.gate, dir);
     else if (k === 4) next.vol = cycle(STEP_VOLS, own('vol') ?? 100, dir);
-    else if (k === 5) next.bass = cycle([null, true, false], own('bass'), dir);
+    else if (k === 5) next.bassOn = cycle([null, true, false], own('bassOn'), dir);
     else if (k === 6) next.spread = cycle([null, 0, 1, 2], own('spread'), dir);
     else if (k === 7) next.feel = cycle([null, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], own('feel'), dir);
-    for (const key of ['mode', 'beats', 'rate', 'strumMs', 'bass', 'spread', 'feel']) if (next[key] === null) delete next[key];
+    for (const key of ['mode', 'beats', 'rate', 'strumMs', 'bassOn', 'spread', 'feel']) if (next[key] === null) delete next[key];
     if (next.gate === 1) delete next.gate;
     if (next.vol === 100) delete next.vol;
     editMems(() => { st.mems[s] = next; });
@@ -1126,7 +1292,7 @@ function stepParams(m) {
         ['SPD ' + speedLabel(p), isArpMode(p) ? has('rate') : has('strumMs')],
         ['GATE ' + Math.round(p.gate * 100) + '%', has('gate')],
         ['VOL ' + (m.vol ?? 100) + '%', has('vol')],
-        ['BASS ' + (p.bass ? 'ON' : 'OFF'), has('bass')],
+        ['BASS ' + (p.bass ? 'ON' : 'OFF'), has('bassOn')],
         [spreadLabel(p), has('spread')],
         ['FEEL ' + p.feel, has('feel')]
     ];
@@ -1238,6 +1404,8 @@ function updateLeds() {
     }
     if (sent < LEDS_PER_TICK) buttonLed(CC_LOOP, st.range || st.loopHeld ? COL.loop : COL.off);
     if (sent < LEDS_PER_TICK) buttonLed(CC_PLAY, st.player && !st.player.waiting ? COL.held : COL.off);
+    for (let t = 0; t < 4 && sent < LEDS_PER_TICK; t++)
+        buttonLed(CC_TRACK1 - t, t === st.trackHeld ? COL.white : t === cfg.chordCh ? COL.maj : cfg.bass && !bassOnChords() && t === cfg.bassCh ? COL.min : COL.off);
     if (sent < LEDS_PER_TICK) buttonLed(CC_REC, st.bounce ? COL.rec : COL.off);
 }
 
@@ -1359,6 +1527,7 @@ globalThis.tick = function () {
     flushOut();
     flushControls();
     tickPlusMinus();
+    if (st.ticks % CLOCK_READ_TICKS === 0) { readClock(); if (st.trackHeld >= 0) readMoveInfo(); }
     followTransport();
     tickBounce();
     tickPlayer();
@@ -1409,7 +1578,11 @@ globalThis.onMidiMessageInternal = function (data) {
     if (d1 === CC_SHIFT) { st.shift = press; st.dirty = true; }
     else if (d1 === CC_DELETE && press && st.shift) panic();
     else if (d1 === CC_DELETE) { st.del = press; st.dirty = true; }
+    else if (d1 === CC_UNDO && press && st.shift) { pressButton(CC_UNDO); toast('MOVE', 'UNDO'); }
     else if (d1 === CC_UNDO && press) undo();
+    else if (d1 === CC_MUTE) st.mute = press;
+    else if (d1 >= CC_TRACK1 - 3 && d1 <= CC_TRACK1) { if (press) trackDown(CC_TRACK1 - d1); else trackUp(CC_TRACK1 - d1); }
+    else if (d1 === CC_VOLUME && st.trackHeld >= 0) trackVolume(d2);
     else if (d1 === CC_LOOP && press && st.shift) {
         cfg.strike = !cfg.strike;
         cfg.dirtyAt = Date.now();

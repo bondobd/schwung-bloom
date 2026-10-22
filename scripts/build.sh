@@ -14,7 +14,8 @@ mkdir -p "$OUT"
 hash_of() { (md5sum "$1" 2>/dev/null || md5 -r "$1") | cut -c1-8; }
 CHORDS=chords-$(hash_of src/chords.mjs).mjs
 
-cp src/module.json src/help.json "$OUT/"
+[ -f src/dsp.so ] || ./scripts/build-dsp.sh
+cp src/module.json src/help.json src/dsp.so "$OUT/"
 cp src/chords.mjs "$OUT/$CHORDS"
 sed "s#from './chords.mjs'#from './$CHORDS'#" src/ui.js > "$OUT/ui.js"
 grep -q "$CHORDS" "$OUT/ui.js" || { echo "ui.js has no ./chords.mjs import to rewrite" >&2; exit 1; }

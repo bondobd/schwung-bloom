@@ -1,10 +1,11 @@
 {
     "id": "bloom",
     "name": "Bloom",
-    "version": "0.9.1",
+    "version": "0.10.0",
     "description": "Orchid-style chord instrument: key-aware chord pads, progressions, per-step performance, recording back to Move tracks",
     "author": "bondobd",
     "ui": "ui.js",
     "api_version": 2,
-    "component_type": "overtake"
+    "component_type": "overtake",
+    "dsp": "dsp.so"
 }

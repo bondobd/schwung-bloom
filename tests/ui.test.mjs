@@ -33,9 +33,9 @@ test('hammering pads never leaves a note hanging', async () => {
 });
 
 test('Capture writes a progression to steps 1-4', async () => {
-    bloom.button(CC.CAPTURE); await bloom.run(10);
-    bloom.button(CC.PLAY); await bloom.run(10);               // Play stops the chords-only preview
-    await bloom.run(1500);
+    bloom.button(CC.CAPTURE); await bloom.run(1500);
+    bloom.button(CC.SHIFT); bloom.button(CC.DELETE); bloom.button(CC.DELETE, false); bloom.button(CC.SHIFT, false);  // all notes off stops the preview
+    await bloom.run(50);
     const saved = JSON.parse(Object.entries(b.files).find(([k]) => k.includes('/set-'))[1]).mems;
     assert.equal(saved.filter(Boolean).length, 4);
 });
@@ -44,11 +44,14 @@ test('a held step takes its own gate and volume', async () => {
     bloom.step(0); await bloom.run(10);
     bloom.turn(CC.KNOB1 + 3, -3);                              // gate 75%
     bloom.turn(CC.KNOB1 + 4, -4);                              // volume 80%
+    bloom.turn(CC.KNOB1 + 5, 6);                               // bass: DEFAULT -> ON -> OFF
     await bloom.run(10);
     bloom.step(0, false); await bloom.run(1500);
     const step = JSON.parse(Object.entries(b.files).find(([k]) => k.includes('/set-'))[1]).mems[0];
     assert.equal(step.gate, 0.75);
     assert.equal(step.vol, 80);
+    assert.equal(step.bassOn, false);
+    assert.equal(typeof step.bass, 'number', 'the bass note survives the bass setting');
 });
 
 test('Record lays chords on the chord track, then bass on the bass track', async () => {
@@ -60,6 +63,30 @@ test('Record lays chords on the chord track, then bass on the bass track', async
     assert.ok(b.midi.some(m => m.on && m.ch === 2 && m.note >= 48), 'chords on channel 3');
     assert.ok(b.midi.some(m => m.on && m.ch === 1 && m.note < 48), 'bass on channel 2');
     assert.ok(b.spoken.includes('RECORDED, CHORDS T3 + BASS T2'));
+});
+
+test('Play locks the progression to Move\'s clock and toggles', async () => {
+    b.controls.length = 0; b.midi.length = 0;
+    bloom.button(CC.PLAY); await bloom.run(600);
+    assert.ok(b.controls.includes(85), 'Move started');
+    assert.equal(b.move.playing, true);
+    const firstChord = b.midi.find(m => m.on && m.note >= 48);
+    assert.ok(firstChord, 'chords play');
+    assert.ok(firstChord.t - b.move.startedAt < 80, 'first chord lands on Move\'s first beat');
+    bloom.button(CC.PLAY); await bloom.run(100);
+    assert.equal(b.move.playing, false);
+    await bloom.run(300);
+    assert.deepEqual(bloom.hanging(), []);
+});
+
+test('hold a track button and turn Volume: Move gets the track press and the volume turn', async () => {
+    b.controls.length = 0;
+    const raw = [];
+    const inject = globalThis.move_midi_inject_to_move;
+    globalThis.move_midi_inject_to_move = p => { if (p[0] === 0x0b) raw.push(p[2] + ':' + p[3]); inject(p); };
+    bloom.button(42); bloom.turn(79, 2); bloom.button(42, false);
+    globalThis.move_midi_inject_to_move = inject;
+    assert.deepEqual(raw, ['42:127', '79:1', '79:1', '42:0']);
 });
 
 test('leaving Bloom hands Move back the track it had', async () => {
