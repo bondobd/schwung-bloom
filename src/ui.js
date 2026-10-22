@@ -256,9 +256,16 @@ function route(track) {
 function chordRoute() { return route(cfg.chordCh); }
 
 /* Only the selected track hears Auto, so bass for another Auto track plays on the chord track instead. */
+/* cfg.bassCh is a track, or -1 for the chord track itself. */
+function bassOnChords() { return cfg.bassCh < 0 || cfg.bassCh === cfg.chordCh; }
+
+/* Where Record puts the bass: always its own track when it has one, Auto or not. */
+function bassRecordRoute() { return bassOnChords() ? chordRoute() : route(cfg.bassCh); }
+
 function bassRoute() {
+    if (bassOnChords()) return { ...chordRoute(), onChords: true };
     const r = route(cfg.bassCh);
-    if (r.auto && cfg.bassCh !== cfg.chordCh) return { ...chordRoute(), onChords: true };
+    if (r.auto) return { ...chordRoute(), onChords: true, needsSetup: true };
     return r;
 }
 
@@ -319,7 +326,7 @@ function panic() {
     allNotesOff();
     stopHeld();
     st.player = null;
-    const chans = [...new Set([chordRoute().ch, bassRoute().ch, route(cfg.bassCh).ch])];
+    const chans = [...new Set([chordRoute().ch, bassRoute().ch, bassRecordRoute().ch])];
     for (const ch of chans) {
         st.out.push([0x2b, 0xb0 | ch, 123, 0]);
         for (let n = 0; n < 128; n++) st.out.push([0x28, 0x80 | ch, n, 0]);
@@ -471,7 +478,7 @@ function soundChord(pad, c, vel, perf = perfFor(null)) {
             if (isArpMode(perf)) startArp(pad, notes, vel, ch, perf);
             else playNotes(pad, perf.mode === M_STRUM2 ? notes.concat(notes.map(n => n + 12).filter(n => n <= 127)) : notes, vel, ch, true, perf);
         }
-        const bass = st.bounce ? route(cfg.bassCh) : bassRoute();
+        const bass = st.bounce ? bassRecordRoute() : bassRoute();
         if (parts.bass && perf.bass && !bass.off) playNotes(pad, [c.bass], vel, bass.ch, false, perf);
     }
     st.dirty = true;
@@ -832,8 +839,8 @@ function startBounce() {
     stopHeld();
     allNotesOff();
     const anyBass = order.some(s => perfFor(st.mems[s]).bass);
-    const passes = [{ track: cfg.chordCh, parts: { chords: true, bass: cfg.bassCh === cfg.chordCh }, label: 'CHORDS' }];
-    if (anyBass && cfg.bassCh !== cfg.chordCh) passes.push({ track: cfg.bassCh, parts: { chords: false, bass: true }, label: 'BASS' });
+    const passes = [{ track: cfg.chordCh, parts: { chords: true, bass: bassOnChords() }, label: 'CHORDS' }];
+    if (anyBass && !bassOnChords()) passes.push({ track: cfg.bassCh, parts: { chords: false, bass: true }, label: 'BASS' });
     const now = Date.now();
     st.bounce = { passes, pass: 0, stage: 'stop', pressed: false, at: now, deadline: now + 2500, order, i: 0, parts: passes[0].parts };
     st.dirty = true;
@@ -946,7 +953,23 @@ function trackLabel(ch) {
     return 'TRACK ' + (ch + 1) + name;
 }
 
-function bassTrackLabel() { return bassRoute().onChords ? 'WITH CHORDS' : 'TRACK ' + (cfg.bassCh + 1); }
+/* Where the bass is heard live: its own track, or the chord track (by choice, or until its track gets a channel). */
+function bassTrackLabel() {
+    if (bassOnChords()) return 'CHORD TRACK';
+    return 'TRACK ' + (cfg.bassCh + 1) + (bassRoute().needsSetup ? ' (SETUP)' : '');
+}
+
+/* Shown when the bass track is on MIDI In Auto: how to give it a channel, on Move's own screen. */
+function showBassSetup() {
+    const t = cfg.bassCh + 1, c = cfg.chordCh + 1;
+    showCard('T' + t + ' NEEDS A CHANNEL', [
+        'Live bass: T' + c + ' for now.',
+        'Leave Bloom, hold',
+        'Shift + Track ' + t + ',',
+        'set MIDI In to ' + t + '.',
+        'Record works anyway.'
+    ]);
+}
 
 function speedLabel(perf) {
     if (isArpMode(perf)) return RATES[perf.rate][0];
@@ -958,7 +981,7 @@ function spreadLabel(perf) { return isArpMode(perf) ? (perf.spread + 1) + ' OCT'
 function knobValue(k) {
     if (st.shift && k === 7) return THEMES[cfg.theme].name;
     if (st.shift && k === 4) return trackLabel(cfg.chordCh);
-    if (st.shift && k === 5) return bassRoute().onChords ? 'WITH CHORDS' : trackLabel(cfg.bassCh);
+    if (st.shift && k === 5) return bassTrackLabel();
     const g = perfFor(null);
     switch (k) {
         case 0: return MODES[cfg.mode];
@@ -966,7 +989,7 @@ function knobValue(k) {
         case 2: return isArpMode() ? RATES[cfg.rate][0] + ' @ ' + Math.round(st.tempo) : cfg.strumMs + ' MS';
         case 3: return SOUNDS[cfg.sound];
         case 4: return cfg.vol + '%';
-        case 5: return !cfg.bass ? 'OFF' : 'ON ' + bassTrackLabel();
+        case 5: return !cfg.bass ? 'OFF' : 'ON: ' + bassTrackLabel();
         case 6: return spreadLabel(g);
         case 7: return cfg.feel ? 'LOOSE ' + cfg.feel : 'STEADY';
     }
@@ -981,8 +1004,15 @@ function routeNote(track) {
 function knobTitle(k) {
     if (st.shift && k === 7) return 'PAD COLOURS';
     if (st.shift && k === 4) return 'CHORD TRACK: ' + routeNote(cfg.chordCh);
-    if (st.shift && k === 5) return bassRoute().onChords ? 'T' + (cfg.bassCh + 1) + ' MIDI IN IS AUTO' : 'BASS TRACK: ' + routeNote(cfg.bassCh);
+    if (st.shift && k === 5) return bassOnChords() ? 'BASS TRACK' : 'BASS TRACK: ' + routeNote(cfg.bassCh);
     return KNOB_NAMES[k];
+}
+
+/* A longer message than a toast: a title and up to five lines, for a few seconds. */
+function showCard(title, lines) {
+    st.toast = { title, lines, until: Date.now() + 4500 };
+    st.dirty = true;
+    announce(title + '. ' + lines.join(' '));
 }
 
 function toast(title, value) {
@@ -1017,7 +1047,11 @@ function knob(k, delta) {
     if (st.shift && (k === 4 || k === 5)) {
         const dir = knobSteps(k, delta, 4);
         if (dir && k === 4) { allNotesOff(); cfg.chordCh = (cfg.chordCh + dir + 4) % 4; requestSelect(); }
-        if (dir && k === 5) { allNotesOff(); cfg.bassCh = (cfg.bassCh + dir + 4) % 4; }
+        if (dir && k === 5) {
+            allNotesOff();
+            cfg.bassCh = cycle([-1, 0, 1, 2, 3].filter(t => t !== cfg.chordCh), bassOnChords() ? -1 : cfg.bassCh, dir);
+            if (cfg.bass && bassRoute().needsSetup) { cfg.dirtyAt = Date.now(); showBassSetup(); return; }
+        }
     } else if (k === 2 && !isArpMode()) {
         cfg.strumMs = clamp(cfg.strumMs + delta * 2, 5, 150);
     } else if (k === 4) {
@@ -1037,7 +1071,11 @@ function knob(k, delta) {
             if (cfg.sound !== S_HOLD && st.latched) stopHeld();
             else if (st.rootDown) replayHeld();
         }
-        else if (k === 5) { cfg.bass = !cfg.bass; if (!cfg.bass) allNotesOff(); }
+        else if (k === 5) {
+            cfg.bass = !cfg.bass;
+            if (!cfg.bass) allNotesOff();
+            else if (bassRoute().needsSetup) { cfg.dirtyAt = Date.now(); showBassSetup(); return; }
+        }
         else if (k === 6) {
             cfg.spread = clamp(cfg.spread + dir, 0, SPREADS.length - 1);
             if (st.arp) st.arp.notes = arpNotes(st.arp.base, st.arp.perf);
@@ -1261,7 +1299,8 @@ function draw() {
     if (st.toast && Date.now() < st.toast.until) {
         fill_rect(0, 0, 128, 11, 1);
         print(2, 2, st.toast.title, 0);
-        drawBig(st.toast.value, 22);
+        if (st.toast.lines) st.toast.lines.forEach((line, i) => print(0, 14 + i * 10, line, 1));
+        else drawBig(st.toast.value, 22);
         return;
     }
     st.toast = null;
@@ -1292,7 +1331,7 @@ function draw() {
     if (st.del) { print(0, 54, 'CLEAR STEP', 1); return; }
     if (st.loopHeld) { print(0, 54, 'TAP FIRST + LAST STEP', 1); return; }
     if (memOrder().length) { drawSequence(55); return; }
-    const b = !cfg.bass ? 'BASS OFF' : bassRoute().onChords ? 'BASS W/ CHORDS' : 'BASS T' + (cfg.bassCh + 1);
+    const b = !cfg.bass ? 'BASS OFF' : bassOnChords() ? 'BASS ON CHORDS' : bassRoute().needsSetup ? 'BASS: SETUP T' + (cfg.bassCh + 1) : 'BASS T' + (cfg.bassCh + 1);
     print(0, 54, 'T' + (cfg.chordCh + 1) + ' CAPTURE = IDEAS', 1);
     print(128 - text_width(b), 54, b, 1);
 }
@@ -1352,7 +1391,12 @@ globalThis.onMidiMessageInternal = function (data) {
     }
     if (type === 0x90 || type === 0x80) {
         const on = type === 0x90 && d2 > 0;
-        if (d1 < 8) { if (on && st.heldStep < 0) toast(knobTitle(d1), knobValue(d1)); return; }
+        if (d1 < 8) {
+            if (!on || st.heldStep >= 0) return;
+            if (d1 === 5 && cfg.bass && bassRoute().needsSetup) showBassSetup();
+            else toast(knobTitle(d1), knobValue(d1));
+            return;
+        }
         if (d1 < 10) return;
         if (d1 >= STEP0 && d1 < STEP0 + 16) { if (on) stepDown(d1 - STEP0, d2); else stepUp(d1 - STEP0); return; }
         if (d1 < PAD0 || d1 > PAD0 + 31) return;
