@@ -1,0 +1,177 @@
+{
+    "title": "Bloom",
+    "children": [
+        {
+            "title": "Overview",
+            "lines": [
+                "Bloom is a chord",
+                "instrument. It plays",
+                "Move's own tracks:",
+                "chords on Track 3,",
+                "bass on Track 2.",
+                "",
+                "Chords follow the",
+                "Set's key and scale."
+            ]
+        },
+        {
+            "title": "Pads",
+            "lines": [
+                "Bottom row: major",
+                "chords, root to",
+                "octave of the key.",
+                "",
+                "Row 2: minor chords",
+                "(dim where the key",
+                "has it).",
+                "",
+                "Row 3: strum the",
+                "held chord's notes.",
+                "",
+                "Top row: hold to",
+                "colour a chord:",
+                " Sus2 Sus4 Dim Aug",
+                " 7 Maj7 6 Add9",
+                "",
+                "Lit = in key.",
+                "Rose top pads add",
+                "notes outside it."
+            ]
+        },
+        {
+            "title": "Pick and strike",
+            "lines": [
+                "Shift+Loop toggles.",
+                "",
+                "Tap a chord pad to",
+                "pick it silently,",
+                "then strike the top",
+                "row to play it:",
+                " Plain Sus2 Sus4 6",
+                " 7 Maj7 Add9 9",
+                "",
+                "The strum row stays",
+                "on the last chord,",
+                "so you can let go."
+            ]
+        },
+        {
+            "title": "Progressions",
+            "lines": [
+                "Capture: a new",
+                "4-chord idea in key.",
+                "Shift+Capture: 8.",
+                "",
+                "Shift+Step: save the",
+                "last chord to step.",
+                "Step: play it.",
+                "Delete+Step: clear.",
+                "Undo: take it back.",
+                "",
+                "Wheel, nothing held:",
+                "a new take on every",
+                "chord. Left = back.",
+                "",
+                "Left/Right: previous",
+                "or next chord."
+            ]
+        },
+        {
+            "title": "Program a step",
+            "lines": [
+                "Hold a step. Knobs",
+                "set how it plays:",
+                " 1 Mode  2 Length",
+                " 3 Speed 4 Gate",
+                " 5 Vol   6 Bass",
+                " 7 Spread 8 Feel",
+                "Turn to the start",
+                "for DEFAULT.",
+                "",
+                "Wheel: new voicing.",
+                "Wheel click: plain.",
+                "-/+: semitone.",
+                "Long -/+: octave.",
+                "Volume knob: volume."
+            ]
+        },
+        {
+            "title": "Play and record",
+            "lines": [
+                "Play: Move and the",
+                "progression start",
+                "together. Play again",
+                "stops everything.",
+                "Shift+Play: chords",
+                "only.",
+                "",
+                "Hold Loop, tap first",
+                "and last step: loop",
+                "those. Loop alone:",
+                "all steps.",
+                "",
+                "Record: records the",
+                "steps to the chord",
+                "track, then the bass",
+                "to the bass track.",
+                "Pick empty clip",
+                "slots first."
+            ]
+        },
+        {
+            "title": "Knobs",
+            "lines": [
+                "1 Play mode",
+                "2 Step length",
+                "3 Strum speed or",
+                "  arp rate",
+                "4 Sound: on, muted,",
+                "  hold",
+                "5 Volume",
+                "6 Bass on/off",
+                "7 Spread",
+                "8 Feel",
+                "",
+                "Shift+5 chord track",
+                "Shift+6 bass track",
+                "Shift+8 pad colours"
+            ]
+        },
+        {
+            "title": "Other buttons",
+            "lines": [
+                "-/+: octave.",
+                "Shift+-/+: shift",
+                "chord rows a",
+                "semitone.",
+                "",
+                "Shift+wheel click:",
+                "out-of-key chords",
+                "on or off.",
+                "Wheel click: smooth",
+                "voice leading.",
+                "",
+                "Delete+chord pad:",
+                "stop a held chord.",
+                "Shift+Delete: all",
+                "notes off."
+            ]
+        },
+        {
+            "title": "Routing",
+            "lines": [
+                "Tracks on MIDI In",
+                "Auto only hear the",
+                "selected track, so",
+                "Bloom selects the",
+                "chord track for you.",
+                "",
+                "For live bass on its",
+                "own track, set that",
+                "track's MIDI In to",
+                "a channel: Shift +",
+                "track button."
+            ]
+        }
+    ]
+}

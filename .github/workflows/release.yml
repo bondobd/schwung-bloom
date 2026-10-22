@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check versions match the tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e '
+            const fs = require("fs");
+            const want = process.argv[1];
+            for (const f of ["package.json", "src/module.json", "release.json"]) {
+              const got = JSON.parse(fs.readFileSync(f, "utf8")).version;
+              if (got !== want) throw new Error(`${f} is ${got}, tag is ${want}`);
+            }
+          ' "$VERSION"
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: ./scripts/build.sh
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/bloom-module.tar.gz
+          generate_release_notes: true

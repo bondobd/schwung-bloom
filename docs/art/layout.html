@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Bloom layout</title>
+<link href="https://fonts.googleapis.com/css2?family=Gloock&family=Figtree:wght@400;600;700&family=Silkscreen&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { width: 1600px; height: 900px; overflow: hidden; font-family: Figtree, sans-serif; color: #eef3ff;
+    background: radial-gradient(1000px 600px at 50% 0%, #1b2b5a 0%, transparent 65%), linear-gradient(160deg, #0b1020, #101a33); }
+  h2 { font-family: Gloock, serif; font-weight: 400; font-size: 64px; position: absolute; left: 90px; top: 56px; }
+  .kicker { font-family: Silkscreen, monospace; font-size: 16px; letter-spacing: 3px; color: #2de0cf; position: absolute; left: 92px; top: 40px; }
+  .grid { position: absolute; left: 90px; top: 190px; display: grid; grid-template-columns: repeat(8, 92px); gap: 12px; }
+  .pad { width: 92px; height: 92px; border-radius: 12px; background: #23262d; border: 1px solid #353a44; position: relative;
+    display: flex; align-items: flex-end; padding: 8px; font-weight: 700; font-size: 17px; color: #0b1020; }
+  .pad.dark { color: #6e7891; }
+  .rowlabel { position: absolute; left: 960px; width: 560px; }
+  .rowlabel b { display: block; font-size: 24px; margin-bottom: 4px; }
+  .rowlabel span { color: #9fb0d6; font-size: 18px; line-height: 1.4; }
+  .rowlabel::before { content: ""; position: absolute; left: -36px; top: 14px; width: 22px; height: 2px; background: #5b6a92; }
+  .legend { position: absolute; left: 90px; top: 660px; display: grid; grid-template-columns: repeat(3, 470px); gap: 16px 30px; font-size: 18px; }
+  .legend div { color: #c9d4ee; line-height: 1.35; }
+  .legend b { color: #fff; font-family: Silkscreen, monospace; font-weight: 400; font-size: 15px; letter-spacing: 1px; display: block; margin-bottom: 2px; color: #2de0cf; }
+</style>
+</head>
+<body>
+<div class="kicker">THE SURFACE</div>
+<h2>Every pad is a chord in your key</h2>
+<div class="grid" id="grid"></div>
+<div class="rowlabel" style="top:198px"><b>Colour</b><span>Hold while playing: Sus2, Sus4, Dim, Aug, 7, Maj7, 6, Add9. Blue keeps the chord in key, rose adds an outside note.</span></div>
+<div class="rowlabel" style="top:302px"><b>Strum plate</b><span>The held chord's notes, low to high. Brush across it.</span></div>
+<div class="rowlabel" style="top:406px"><b>Minor chords</b><span>On the same roots. Diminished where the key has it.</span></div>
+<div class="rowlabel" style="top:510px"><b>Major chords</b><span>Root to octave of the Set's key. Out-of-key pads go dark (or dim, if you let them play).</span></div>
+<div class="legend">
+  <div><b>CAPTURE</b>A fresh 4-chord progression in your key. Shift for 8.</div>
+  <div><b>WHEEL</b>A new take on every chord: 7ths, 9ths, sus, inversions, bass notes.</div>
+  <div><b>HOLD A STEP</b>Knobs set how that chord plays: mode, length, gate, volume, bass.</div>
+  <div><b>PLAY</b>Move and your progression start together. Shift: chords only.</div>
+  <div><b>LOOP</b>Hold it and tap two steps to loop just those.</div>
+  <div><b>RECORD</b>Chords onto your chord track, then bass onto your bass track.</div>
+</div>
+<script>
+  const C = { aqua: '#2de0cf', blue: '#4a63ff', white: '#ffffff', azure: '#29a9ff', rose: '#ff5f8f', grey: '#8d97ad' };
+  const glow = (c, a = 1) => `background:${c};opacity:${a};box-shadow:0 0 20px ${c}88;border-color:transparent`;
+  const rows = [
+    [['SUS2', C.azure], ['SUS4', C.azure], ['DIM', C.rose], ['AUG', C.rose], ['7', C.azure], ['MAJ7', C.rose], ['6', C.rose], ['ADD9', C.azure]],
+    [['', C.grey, .5], ['', C.white], ['', C.grey, .5], ['', C.white], ['', C.grey, .5], ['', C.grey, .5], ['', C.grey, .5], ['', C.grey, .5]],
+    [['Cm'], ['Dm', C.blue], ['Em', C.blue], ['Fm'], ['Gm'], ['Am', C.blue], ['B°', C.blue], ['Cm']],
+    [['C', C.aqua], ['D'], ['E'], ['F', C.aqua], ['G', C.aqua], ['A'], ['B'], ['C', C.aqua]]
+  ];
+  const grid = document.getElementById('grid');
+  rows.forEach(r => r.forEach(([l, c, a]) => { const d = document.createElement('div'); d.className = 'pad' + (c ? '' : ' dark'); d.textContent = l; if (c) d.setAttribute('style', glow(c, a ?? 1)); grid.appendChild(d); }));
+</script>
+</body>
+</html>
