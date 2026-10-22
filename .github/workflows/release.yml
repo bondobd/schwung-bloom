@@ -18,6 +18,10 @@ jobs:
         with:
           node-version: 22
 
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Check versions match the tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
