@@ -585,7 +585,7 @@ function playChordPad(i, vel) {
     const m = { pc: p.pc, baseQ: p.q, q: t.q || p.q, ext: t.ext, oct: st.oct, voicing: st.voicing, open: false, bassDeg: 0 };
     if (cfg.smooth && st.prev) m.voicing = smoothVoicing(m, st.prev);
     const c = renderChord(m);
-    st.last = c;
+    st.last = { ...c, vel };
     soundChord(i, c, vel);
 }
 
@@ -636,11 +636,14 @@ function strike(i, vel) {
     const m = { pc: st.sel.pc, baseQ: st.sel.q, q: shape.q, ext: shape.ext, oct: st.oct, voicing: st.voicing, open: false, bassDeg: 0 };
     if (cfg.smooth && st.prev) m.voicing = smoothVoicing(m, st.prev);
     const c = renderChord(m);
-    st.last = c;
+    st.last = { ...c, vel };
     soundChord(i, c, vel);
 }
 
 /* ---------- steps: chord memories ---------- */
+
+/* A saved step plays at the velocity its chord was played with (steps from Capture have none). */
+const memVel = (m, vel = 100) => (m && m.vel) || vel;
 
 function memBeats(m) { return (m && m.beats) || cfg.beats || st.beatsPerBar; }
 
@@ -665,7 +668,7 @@ function prevNotes(s) {
 
 function setStep(s, m, title, value) {
     editMems(() => { st.mems[s] = m; });
-    if (st.heldStep === s) soundChord(32 + s, m, 100, perfFor(m));
+    if (st.heldStep === s) soundChord(32 + s, m, memVel(m), perfFor(m));
     else toast(title || 'STEP ' + (s + 1) + ': ' + voicingLabel(m), value || m.name);
 }
 
@@ -688,7 +691,7 @@ function stepDown(s, vel) {
     st.heldStep = s;
     ownVolumeKnob(true);
     if (st.latched && st.rootPad === 32 + s) { stopHeld(); return; }
-    soundChord(32 + s, m, vel, perfFor(m));
+    soundChord(32 + s, m, memVel(m, vel), perfFor(m));
 }
 
 function stepUp(s) {
@@ -798,7 +801,7 @@ function navigate(dir) {
     let i = order.indexOf(st.navStep);
     i = i < 0 ? (dir > 0 ? 0 : order.length - 1) : (i + dir + order.length) % order.length;
     st.navStep = order[i];
-    soundChord(32 + st.navStep, st.mems[st.navStep], 100, perfFor(st.mems[st.navStep]));
+    soundChord(32 + st.navStep, st.mems[st.navStep], memVel(st.mems[st.navStep]), perfFor(st.mems[st.navStep]));
 }
 
 function navigateUp() {
@@ -892,7 +895,7 @@ function stepRun(r) {
     r.cur = id;
     const s = order[k], m = st.mems[s], perf = perfFor(m);
     r.step = s;
-    soundChord(PLAYER_PAD, m, 100, perf);
+    soundChord(PLAYER_PAD, m, memVel(m), perf);
     r.offBeat = perf.gate < 1 ? pos - at + lens[k] * perf.gate : -1;
     return true;
 }
@@ -1395,7 +1398,7 @@ function stepKnob(s, k, delta) {
     if (next.gate === 1) delete next.gate;
     if (next.vol === 100) delete next.vol;
     editMems(() => { st.mems[s] = next; });
-    soundChord(32 + s, next, 100, perfFor(next));
+    soundChord(32 + s, next, memVel(next), perfFor(next));
 }
 
 /* Each knob's setting for a step; own is true when the step sets it rather than following the global knob. */

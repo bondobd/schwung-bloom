@@ -66,7 +66,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Control | Does |
 |---|---|
 | Capture | New 4-chord progression in your key (Shift: 8) |
-| Shift + step | Save the last chord to that step |
+| Shift + step | Save the last chord to that step, at the velocity you played it |
 | Step | Play it |
 | Delete + step | Clear it |
 | Undo | Take back the last change |
