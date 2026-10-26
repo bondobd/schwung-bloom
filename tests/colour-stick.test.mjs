@@ -71,3 +71,16 @@ test('changing the colour keeps the velocity the chord was played with', async (
     assert.ok(ons.every(m => m.vel === 40), 'replayed at 40: ' + ons.map(m => m.vel));
     bloom.pad(0, 0, false); await bloom.run(200);
 });
+
+test('in Hold a tapped colour replaces the last one instead of stacking', async () => {
+    const hold = await loadBloom({ settings: { mode: 0, bass: false, sound: 2 } });
+    const h = hold.b;
+    const notes = () => { const on = new Map(); for (const m of h.midi) on.set(m.note, m.on); return [...on].filter(([, v]) => v).map(([n]) => n % 12).sort((x, y) => x - y); };
+    hold.pad(0, 0); await hold.run(40); hold.pad(0, 0, false); await hold.run(40);
+    hold.pad(3, SEVEN); hold.pad(3, SEVEN, false); await hold.run(40);
+    assert.match(hold.text(), /C7/);
+    hold.pad(3, MAJ7); hold.pad(3, MAJ7, false); await hold.run(40);
+    assert.deepEqual(notes(), [0, 4, 7, 11], 'Cmaj7, not C7 + Maj7');
+    hold.pad(3, MAJ7); hold.pad(3, MAJ7, false); await hold.run(40);
+    assert.deepEqual(notes(), [0, 4, 7], 'tapping it again goes back to plain C');
+});

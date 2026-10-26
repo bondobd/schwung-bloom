@@ -1123,7 +1123,9 @@ function padDown(i, vel) {
     if (row === 3) {
         /* Tapped while a chord is held (or ringing in Hold): the colour stays on it, tap again to take it off. */
         if (st.rootDown && st.rootPad < 16) {
-            st.stuckTypes = st.stuckTypes.includes(col) ? st.stuckTypes.filter(c => c !== col) : st.stuckTypes.concat(col);
+            /* In Hold one colour at a time: a new one replaces it. Otherwise they stack. */
+            const stack = cfg.sound === S_HOLD ? [] : st.stuckTypes;
+            st.stuckTypes = st.stuckTypes.includes(col) ? st.stuckTypes.filter(c => c !== col) : stack.concat(col);
         } else st.heldTypes = st.heldTypes.filter(c => c !== col).concat(col);
         replayHeld();
         return;
