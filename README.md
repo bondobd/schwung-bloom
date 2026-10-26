@@ -29,7 +29,7 @@ Rows from the bottom, in C major:
 |---|---|
 | 1 | Major chords on the key's scale, root to octave: **C** D E **F G** A B **C** |
 | 2 | Minor chords on the same roots: Cm **Dm Em** Fm Gm **Am B°** Cm |
-| 3 | Strum plate: the held chord's notes, low to high |
+| 3 | Strum plate: the held chord's notes, low to high; it stays on the last chord after you let go |
 | 4 | Colour: Sus2, Sus4, Dim, Aug, 7, Maj7, 6, Add9 |
 
 Chords in the key are lit; the rest stay dark until you allow them (Shift + wheel click). In other keys the rows start on that key's root, so all the key's chords are always under your fingers.
@@ -43,7 +43,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Chord pad | Play the chord. In Hold, tap again to stop it |
 | Top row (held) | Colour the chord you play |
 | Top row (tapped while holding a chord) | The colour stays on that chord, for strumming; tap again to take it off |
-| Strum plate | Play the held chord's notes one by one |
+| Strum plate | Play the held (or last) chord's notes one by one |
 | Wheel | Invert the chord you're holding |
 | Wheel click | Smooth voice leading on or off |
 | Shift + wheel click | Out-of-key chords playable or hidden |

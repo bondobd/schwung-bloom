@@ -49,3 +49,15 @@ test('holding a colour before the chord still works as before', async () => {
     bloom.pad(0, 3, false); await bloom.run(200);
     assert.deepEqual(bloom.hanging(), []);
 });
+
+test('the strum plate stays on the last chord after it is let go', async () => {
+    bloom.pad(0, 0); await bloom.run(40);
+    bloom.pad(3, MAJ7); bloom.pad(3, MAJ7, false); await bloom.run(30);
+    bloom.pad(0, 0, false); await bloom.run(200);
+    assert.deepEqual(await strumPlate(), [0, 4, 7, 11], 'Cmaj7 still on the plate');
+    assert.notEqual(bloom.padColor(2, 0), 0, 'the plate stays lit');
+    bloom.pad(0, 3); await bloom.run(40); bloom.pad(0, 3, false); await bloom.run(200);
+    assert.deepEqual(await strumPlate(), [0, 5, 9], 'then F');
+    await bloom.run(200);
+    assert.deepEqual(bloom.hanging(), []);
+});

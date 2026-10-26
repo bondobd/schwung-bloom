@@ -10,7 +10,7 @@
  * Pads, bottom row first (pad 68 is bottom-left):
  *   row 1  major chords on the key's scale, root to octave (C D E F G A B C in C major)
  *   row 2  minor chords on the same roots (diminished where the key has it)
- *   row 3  strum plate: tones of the held chord, low to high (dark when no chord is held)
+ *   row 3  strum plate: tones of the held chord, low to high (the last chord once let go)
  *   row 4  Sus2 Sus4 Dim Aug | 7 Maj7 6 Add9   hold while playing a chord
  * Shift+Loop switches to pick-then-strike: a chord pad picks the chord silently and the top
  *   row plays it: Plain Sus2 Sus4 6 | 7 Maj7 Add9 9. Top-row pads that keep the chord in key
@@ -137,7 +137,7 @@ const st = {
     range: null,                // {a, b}: steps the progression plays, null for all
     loopHeld: false, loopPicks: [],
     sel: null,                  // pick-then-strike: {pad, pc, q} of the picked chord
-    armNotes: [],               // pick-then-strike: what the strum row plays after the pads are released
+    armNotes: [],               // what the strum row plays once the pads are let go: the last chord, or the picked one
     bounce: null,               // recording onto Move tracks, see tickBounce
     heldStep: -1, movePlaying: false, homeTrack: -1,
     shift: false, del: false,
@@ -526,6 +526,7 @@ function soundChord(pad, c, vel, perf = perfFor(null)) {
     st.rootPad = pad; st.rootDown = true; st.latched = false;
     const notes = spreadNotes(c.notes, perf);
     st.notes = notes; st.bassNote = c.bass; st.name = c.name; st.prev = c.notes;
+    st.armNotes = notes;
     st.cur = { pc: c.pc, q: c.baseQ || c.q };
     st.bassOn = perf.bass;
     const parts = st.bounce ? st.bounce.parts : { chords: true, bass: true };
@@ -588,10 +589,10 @@ function replayHeld() {
     st.dirty = true;
 }
 
-/* The strum row plays the sounding chord; in pick-then-strike it stays on the last picked or struck chord. */
+/* The strum row plays the sounding chord, and stays on the last one (or the picked one) after it is let go. */
 function strumTones() {
     if (st.rootDown && st.notes.length) return st.notes;
-    return cfg.strike ? st.armNotes : [];
+    return st.armNotes;
 }
 
 /* True when every note of the chord is in the Set's scale. */
@@ -624,7 +625,6 @@ function strike(i, vel) {
     const c = renderChord(m);
     st.last = c;
     soundChord(i, c, vel);
-    st.armNotes = st.notes;
 }
 
 /* ---------- steps: chord memories ---------- */
