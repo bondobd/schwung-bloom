@@ -99,6 +99,8 @@ const RATES = [['1/4', 1], ['1/8', 0.5], ['1/8T', 1 / 3], ['1/16', 0.25]];
 const SOUNDS = ['ON', 'MUTED', 'HOLD'];
 const S_ON = 0, S_MUTED = 1, S_HOLD = 2;
 const SPREADS = ['CLOSE', 'OPEN', 'WIDE'];
+const OUTS = ['MOVE', 'MOVE + USB', 'USB'];
+const OUT_MOVE = 0, OUT_USB = 2;
 const STEP_BEATS = [1, 2, 3, 4, 6, 8, 12, 16];
 const KNOB_NAMES = ['PLAY MODE', 'STEP LENGTH', 'SPEED', 'SOUND', 'VOLUME', 'BASS', 'SPREAD', 'FEEL'];
 const SHORT_MODES = ['CHORD', 'STRUM', 'STRUM2', 'SLOP', 'ARP UP', 'ARP UD', 'PULSE'];
@@ -114,7 +116,7 @@ const STRIKES = [
 /* Saved between sessions. */
 const cfg = {
     v: SETTINGS_VERSION, mode: M_STRUM, strumMs: 35, rate: 1, bass: false, chordCh: 2, bassCh: 1,
-    smooth: true, spread: 0, feel: 0, sound: S_ON, keyLock: true, vol: 100, beats: 0, strike: false, theme: 0
+    smooth: true, spread: 0, feel: 0, sound: S_ON, keyLock: true, vol: 100, beats: 0, strike: false, theme: 0, out: OUT_MOVE
 };
 
 const st = {
@@ -145,6 +147,7 @@ const st = {
     inModes: [], selTrack: -1,  // per track: 'auto' | 'none' | channel 0-15, from the Set file
     controlQueue: [], controlAt: 0,
     out: [], live: new Set(), recheck: [],  // paced MIDI out, notes Move is sounding, note-offs to repeat
+    usbOut: [], usbLive: new Set(),         // the same for the USB-A port
     plusMinus: null,            // {dir, at, fired}: a -/+ press on a held step, for long press
     navStep: -1,
     mute: false,
@@ -182,6 +185,7 @@ function loadState() {
     cfg.sound = clamp(cfg.sound, 0, SOUNDS.length - 1);
     cfg.spread = clamp(cfg.spread, 0, SPREADS.length - 1);
     cfg.vol = clamp(cfg.vol, 0, 100);
+    cfg.out = clamp(cfg.out, 0, OUTS.length - 1);
     loadMems();
 }
 
@@ -283,7 +287,7 @@ function bassRecordRoute() { return bassOnChords() ? chordRoute() : route(cfg.ba
 function bassRoute() {
     if (bassOnChords()) return { ...chordRoute(), onChords: true };
     const r = route(cfg.bassCh);
-    if (r.auto) return { ...chordRoute(), onChords: true, needsSetup: true };
+    if (r.auto && cfg.out !== OUT_USB) return { ...chordRoute(), onChords: true, needsSetup: true };
     return r;
 }
 
@@ -321,12 +325,33 @@ function flushControls() {
  * pad, button or knob event, so notes go out a few per tick and every note-off is repeated
  * once shortly after unless the note has started again. A lost note-off would hang the note.
  */
-function noteOn(ch, note, vel) { st.live.add(ch * 128 + note); st.out.push([0x29, 0x90 | ch, note, vel]); }
+/* Record always goes to Move, since that is where the clips are made. */
+function toMove() { return cfg.out !== OUT_USB || !!st.bounce; }
+function toUsb() { return cfg.out !== OUT_MOVE; }
+
+/* External gear hears chords on channel 1 and bass on its own track on channel 2. */
+function usbChannel(ch) { return ch === chordRoute().ch ? 0 : 1; }
+
+function noteOn(ch, note, vel) {
+    if (toMove()) { st.live.add(ch * 128 + note); st.out.push([0x29, 0x90 | ch, note, vel]); }
+    if (toUsb()) { st.usbLive.add(ch * 128 + note); st.usbOut.push([0x09, 0x90 | usbChannel(ch), note, vel]); }
+}
 
 function noteOff(ch, note) {
-    st.live.delete(ch * 128 + note);
+    const key = ch * 128 + note;
+    if (st.usbLive.delete(key)) st.usbOut.push([0x08, 0x80 | usbChannel(ch), note, 0]);
+    if (!st.live.delete(key) && !toMove()) return;
     st.out.push([0x28, 0x80 | ch, note, 0]);
     st.recheck.push({ at: Date.now() + 150, ch, note });
+}
+
+/* The USB port says when it is full, so a refused packet waits for the next tick instead of being lost. */
+function flushUsb() {
+    if (typeof move_midi_external_send !== 'function') { st.usbOut = []; return; }
+    for (let n = 0; n < OUT_PER_TICK && st.usbOut.length; n++) {
+        if (move_midi_external_send(st.usbOut[0]) === false) return;
+        st.usbOut.shift();
+    }
 }
 
 function flushOut() {
@@ -337,6 +362,7 @@ function flushOut() {
         for (const r of due) if (!st.live.has(r.ch * 128 + r.note)) st.out.push([0x28, 0x80 | r.ch, r.note, 0]);
     }
     for (let n = 0; n < OUT_PER_TICK && st.out.length; n++) move_midi_inject_to_move(st.out.shift());
+    flushUsb();
 }
 
 /* Shift+Delete: every note off on the chord and bass channels, in case anything still hangs. */
@@ -349,8 +375,10 @@ function panic() {
         st.out.push([0x2b, 0xb0 | ch, 123, 0]);
         for (let n = 0; n < 128; n++) st.out.push([0x28, 0x80 | ch, n, 0]);
     }
+    if (toUsb()) for (const ch of [0, 1]) st.usbOut.push([0x0b, 0xb0 | ch, 123, 0]);
     st.live.clear();
-    toast('ALL NOTES OFF', 'CH ' + chans.map(c => c + 1).join(' + '));
+    st.usbLive.clear();
+    toast('ALL NOTES OFF', 'CH ' + chans.map(c => c + 1).join(' + ') + (toUsb() ? ' + USB' : ''));
 }
 
 function releasePad(pad) {
@@ -1157,6 +1185,7 @@ function spreadLabel(perf) { return isArpMode(perf) ? (perf.spread + 1) + ' OCT'
 
 function knobValue(k) {
     if (st.shift && k === 7) return THEMES[cfg.theme].name;
+    if (st.shift && k === 6) return OUTS[cfg.out];
     if (st.shift && k === 4) return trackLabel(cfg.chordCh);
     if (st.shift && k === 5) return bassTrackLabel();
     const g = perfFor(null);
@@ -1180,6 +1209,7 @@ function routeNote(track) {
 
 function knobTitle(k) {
     if (st.shift && k === 7) return 'PAD COLOURS';
+    if (st.shift && k === 6) return 'MIDI OUT';
     if (st.shift && k === 4) return 'CHORD TRACK: ' + routeNote(cfg.chordCh);
     if (st.shift && k === 5) return bassOnChords() ? 'BASS TRACK' : 'BASS TRACK: ' + routeNote(cfg.bassCh);
     return KNOB_NAMES[k];
@@ -1219,6 +1249,13 @@ function knob(k, delta) {
         const dir = knobSteps(k, delta, 4);
         if (dir) { cfg.theme = clamp(cfg.theme + dir, 0, THEMES.length - 1); applyTheme(); cfg.dirtyAt = Date.now(); }
         toast('PAD COLOURS', THEMES[cfg.theme].name);
+        return;
+    }
+    if (st.shift && k === 6) {
+        const dir = knobSteps(k, delta, 4);
+        if (dir) { allNotesOff(); cfg.out = clamp(cfg.out + dir, 0, OUTS.length - 1); cfg.dirtyAt = Date.now(); }
+        if (cfg.out === OUT_MOVE) toast('MIDI OUT', 'MOVE');
+        else showCard('MIDI OUT: ' + OUTS[cfg.out], ['Gear on the USB-A port:', 'chords on channel 1,', 'bass on channel 2.', 'Record still goes', 'to Move tracks.']);
         return;
     }
     if (st.shift && (k === 4 || k === 5)) {
@@ -1648,6 +1685,7 @@ globalThis.onUnload = function () {
     st.bounce = null;
     allNotesOff();
     while (st.out.length) move_midi_inject_to_move(st.out.shift());
+    for (let n = 0; n < 64 && st.usbOut.length; n++) flushUsb();
     restoreHomeTrack();
     ownVolumeKnob(false);
     delete cfg.dirtyAt;

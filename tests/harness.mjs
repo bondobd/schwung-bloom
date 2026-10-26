@@ -40,6 +40,13 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
         if (p[2] === 86) setTimeout(start, 20);
         if (p[2] === 85) { const was = move.playing; setTimeout(() => (was ? (move.playing = false) : start()), 20); }
     };
+    /* USB-A out: refuses while b.usbFull is above zero, like Schwung's ring when it fills. */
+    b.usb = []; b.usbFull = 0;
+    globalThis.move_midi_external_send = p => {
+        if (b.usbFull > 0) { b.usbFull--; return false; }
+        b.usb.push({ t: Date.now(), type: p[1] & 0xf0, on: (p[1] & 0xf0) === 0x90, ch: p[1] & 15, note: p[2], vel: p[3] });
+        return true;
+    };
     globalThis.host_get_move_info = () => ({
         valid: 1, playing: move.playing, rootNote: move.key, scale: move.scale, tempo: move.tempo, tsUpper: 4,
         selectedTrack: move.selected, tracks: [0, 1, 2, 3].map(i => ({ selected: i === move.selected }))

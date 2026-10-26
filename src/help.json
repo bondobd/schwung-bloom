@@ -133,6 +133,7 @@
                 "",
                 "Shift+5 chord track",
                 "Shift+6 bass track",
+                "Shift+7 MIDI out",
                 "Shift+8 pad colours"
             ]
         },
@@ -183,6 +184,22 @@
                 "its playing clip.",
                 "Shift+Undo: Move's",
                 "own Undo."
+            ]
+        },
+        {
+            "title": "External gear",
+            "lines": [
+                "Shift+knob 7:",
+                "MIDI out to Move,",
+                "Move + USB, or USB.",
+                "",
+                "USB is the USB-A",
+                "port: chords on",
+                "channel 1, bass on",
+                "channel 2.",
+                "",
+                "Record always goes",
+                "to Move tracks."
             ]
         }
     ]

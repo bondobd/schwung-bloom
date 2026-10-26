@@ -86,7 +86,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | - / + | Transpose a semitone. Long press: an octave |
 | Volume knob | Volume |
 
-**Knobs** (touch one to see it): 1 play mode, 2 step length, 3 strum speed or arp rate, 4 sound (on, muted, hold), 5 volume, 6 bass, 7 spread, 8 feel. Shift + 5 chord track, Shift + 6 bass track, Shift + 8 pad colours (Ocean, Moonlight, Sunset, Classic).
+**Knobs** (touch one to see it): 1 play mode, 2 step length, 3 strum speed or arp rate, 4 sound (on, muted, hold), 5 volume, 6 bass, 7 spread, 8 feel. Shift + 5 chord track, Shift + 6 bass track, Shift + 7 MIDI out, Shift + 8 pad colours (Ocean, Moonlight, Sunset, Classic).
 
 ## Install
 
@@ -107,6 +107,10 @@ Then open Bloom from Schwung's overtake menu.
 Since Move 1.5 each track has a MIDI In setting (Shift + track button). Tracks on **Auto** only hear MIDI while selected, so Bloom selects your chord track for you, and hands Move back the track it had when you leave.
 
 The bass (knob 6 on, Shift + knob 6 to choose where) can play on the **chord track** itself or on **a track of its own**. Only one track hears MIDI on Auto, so for live bass on its own track, give that track a MIDI In channel once per Set: leave Bloom, hold Shift, press the bass track's button, set MIDI In to its number. Until then Bloom tells you so and plays the bass on the chord track. Record puts the bass on its own track either way, by recording it in a second pass.
+
+## External gear
+
+Shift + knob 7 sets where Bloom's notes go: **Move** (the default), **Move + USB**, or **USB** alone. USB is Move's USB-A port, so plug a class-compliant synth or a USB MIDI interface in there. Chords go out on MIDI channel 1 and bass (when it has a track of its own) on channel 2. Record still lays clips onto your Move tracks either way.
 
 ## Recording tips
 
