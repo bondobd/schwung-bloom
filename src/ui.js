@@ -124,6 +124,7 @@ const st = {
     keyRoot: 0, scale: MAJOR, scaleName: 'MAJOR', turn: 0,
     tempo: 120, beatsPerBar: 4, tracks: [],
     heldTypes: [],              // type-pad columns in press order
+    stuckTypes: [],             // type pads tapped while a chord was held: they stay on that chord
     rootPad: -1, rootDown: false, latched: false,
     notes: [], bassNote: -1, name: '--', prev: null, cur: null,
     last: null,                 // last chord played, for Shift+step
@@ -499,11 +500,14 @@ function tickArp() {
 function padInfo(row, col) { return padChord(st.keyRoot, st.scale, st.turn, row, col); }
 const pcOf = n => ((n % 12) + 12) % 12;
 
+function activeTypes() { return st.stuckTypes.concat(st.heldTypes.filter(c => !st.stuckTypes.includes(c))); }
+
 function heldTypeValues() {
-    const qs = st.heldTypes.filter(c => TYPES[c][0] === 'q');
+    const types = activeTypes();
+    const qs = types.filter(c => TYPES[c][0] === 'q');
     return {
         q: qs.length ? TYPES[qs[qs.length - 1]][1] : null,
-        ext: st.heldTypes.filter(c => TYPES[c][0] === 'e').map(c => TYPES[c][1])
+        ext: types.filter(c => TYPES[c][0] === 'e').map(c => TYPES[c][1])
     };
 }
 
@@ -546,6 +550,7 @@ function releaseChord(pad) {
     if (pad !== st.rootPad || !st.rootDown) { releasePad(pad); st.dirty = true; return; }
     if (cfg.sound === S_HOLD) { st.latched = true; st.dirty = true; return; }
     st.rootDown = false;
+    st.stuckTypes = [];
     releasePad(pad);
     st.dirty = true;
 }
@@ -553,11 +558,13 @@ function releaseChord(pad) {
 function stopHeld() {
     if (st.rootPad >= 0) releasePad(st.rootPad);
     st.rootDown = false; st.latched = false;
+    st.stuckTypes = [];
     st.dirty = true;
 }
 
 function playChordPad(i, vel) {
     if (st.latched && i === st.rootPad) { stopHeld(); return; }
+    if (i !== st.rootPad) st.stuckTypes = [];
     const p = padInfo(i >> 3, i & 7);
     if (cfg.keyLock && !p.inKey) return;
     const t = heldTypeValues();
@@ -1098,7 +1105,10 @@ function padDown(i, vel) {
     const row = i >> 3, col = i & 7;
     if (row === 3 && cfg.strike) { strike(i, vel); return; }
     if (row === 3) {
-        st.heldTypes = st.heldTypes.filter(c => c !== col).concat(col);
+        /* Tapped while a chord is held (or ringing in Hold): the colour stays on it, tap again to take it off. */
+        if (st.rootDown && st.rootPad < 16) {
+            st.stuckTypes = st.stuckTypes.includes(col) ? st.stuckTypes.filter(c => c !== col) : st.stuckTypes.concat(col);
+        } else st.heldTypes = st.heldTypes.filter(c => c !== col).concat(col);
         replayHeld();
         return;
     }
@@ -1125,6 +1135,7 @@ function padUp(i) {
     const row = i >> 3, col = i & 7;
     if (row === 3 && cfg.strike) { releaseChord(i); return; }
     if (row === 3) {
+        if (!st.heldTypes.includes(col)) return;
         st.heldTypes = st.heldTypes.filter(c => c !== col);
         if (st.rootDown && !st.latched) replayHeld();
         st.dirty = true;
@@ -1458,7 +1469,7 @@ function strikeColor(i) {
 /* Top row, touch and play: brighter while held; red when it would take the sounding chord out of key. */
 function typeColor(col) {
     const [kind, val] = TYPES[col];
-    const held = st.heldTypes.includes(col);
+    const held = activeTypes().includes(col);
     if (!st.rootDown || !st.cur || !st.cur.q || !QUAL[st.cur.q]) return held ? COL.violet : COL.vdviolet;
     const clash = !chordInKey(st.cur.pc, kind === 'q' ? val : st.cur.q, kind === 'e' ? [val] : []);
     if (held) return clash ? COL.clash : COL.violet;
@@ -1679,6 +1690,7 @@ globalThis.onMidiMessageInternal = function (data) {
         st.sel = null;
         st.armNotes = [];
         st.heldTypes = [];
+        st.stuckTypes = [];
         toast('PLAY STYLE', cfg.strike ? 'PICK, THEN STRIKE' : 'TOUCH AND PLAY');
     }
     else if (d1 === CC_LOOP) { if (press) { st.loopHeld = true; st.loopPicks = []; st.dirty = true; } else if (st.loopHeld) loopReleased(); }

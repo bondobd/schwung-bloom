@@ -42,6 +42,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 |---|---|
 | Chord pad | Play the chord. In Hold, tap again to stop it |
 | Top row (held) | Colour the chord you play |
+| Top row (tapped while holding a chord) | The colour stays on that chord, for strumming; tap again to take it off |
 | Strum plate | Play the held chord's notes one by one |
 | Wheel | Invert the chord you're holding |
 | Wheel click | Smooth voice leading on or off |
