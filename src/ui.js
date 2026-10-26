@@ -125,7 +125,7 @@ const st = {
     tempo: 120, beatsPerBar: 4, tracks: [],
     heldTypes: [],              // type-pad columns in press order
     stuckTypes: [],             // type pads tapped while a chord was held: they stay on that chord
-    rootPad: -1, rootDown: false, latched: false,
+    rootPad: -1, rootDown: false, latched: false, rootVel: 100,
     notes: [], bassNote: -1, name: '--', prev: null, cur: null,
     last: null,                 // last chord played, for Shift+step
     sounding: new Map(),        // pad key -> [{ch, note, on}]
@@ -523,7 +523,7 @@ function spreadNotes(notes, perf) {
 function soundChord(pad, c, vel, perf = perfFor(null)) {
     if (st.rootPad !== pad && (st.rootDown || st.latched)) releasePad(st.rootPad);
     releasePad(pad);
-    st.rootPad = pad; st.rootDown = true; st.latched = false;
+    st.rootPad = pad; st.rootDown = true; st.latched = false; st.rootVel = vel;
     const notes = spreadNotes(c.notes, perf);
     st.notes = notes; st.bassNote = c.bass; st.name = c.name; st.prev = c.notes;
     st.armNotes = notes;
@@ -583,7 +583,7 @@ function replayHeld() {
         const latched = st.latched;
         st.latched = false;
         st.prev = null;
-        if (strikePad) strike(st.rootPad, 100); else playChordPad(st.rootPad, 100);
+        if (strikePad) strike(st.rootPad, st.rootVel); else playChordPad(st.rootPad, st.rootVel);
         st.latched = latched;
     }
     st.dirty = true;

@@ -75,7 +75,7 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
     const api = {
         b,
         async run(ms) { const end = Date.now() + ms; while (Date.now() < end) { globalThis.tick(); await sleep(2); } },
-        pad: (row, col, on = true) => msg(on ? 0x90 : 0x80, 68 + row * 8 + col, on ? 100 : 0),
+        pad: (row, col, on = true, vel = 100) => msg(on ? 0x90 : 0x80, 68 + row * 8 + col, on ? vel : 0),
         step: (s, on = true) => msg(on ? 0x90 : 0x80, 16 + s, on ? 100 : 0),
         button: (cc, on = true) => msg(0xb0, cc, on ? 127 : 0),
         turn: (cc, detents) => { for (let i = 0; i < Math.abs(detents); i++) msg(0xb0, cc, detents > 0 ? 1 : 127); },

@@ -61,3 +61,13 @@ test('the strum plate stays on the last chord after it is let go', async () => {
     await bloom.run(200);
     assert.deepEqual(bloom.hanging(), []);
 });
+
+test('changing the colour keeps the velocity the chord was played with', async () => {
+    bloom.pad(0, 0, true, 40); await bloom.run(40);
+    b.midi.length = 0;
+    bloom.pad(3, MAJ7); bloom.pad(3, MAJ7, false); await bloom.run(40);
+    const ons = b.midi.filter(m => m.on);
+    assert.ok(ons.length);
+    assert.ok(ons.every(m => m.vel === 40), 'replayed at 40: ' + ons.map(m => m.vel));
+    bloom.pad(0, 0, false); await bloom.run(200);
+});
