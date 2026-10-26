@@ -58,7 +58,7 @@ test('a held step takes its own gate and volume', async () => {
 
 test('Record lays chords on the chord track, then bass on the bass track', async () => {
     b.controls.length = 0; b.midi.length = 0;
-    bloom.button(CC.REC);
+    bloom.button(CC.SHIFT); bloom.button(CC.REC); bloom.button(CC.SHIFT, false);
     const start = Date.now();
     while (Date.now() - start < 8000 && !b.spoken.some(s => s.startsWith('RECORDED'))) await bloom.run(20);
     assert.deepEqual(b.controls, [86, 85, 42, 86, 85]);

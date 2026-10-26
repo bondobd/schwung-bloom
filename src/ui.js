@@ -133,12 +133,13 @@ const st = {
     arp: null,                  // {pad, base, notes, ch, vel, i, dir, next, on, offAt}
     player: null,               // a run (see newRun) plus waiting/linked/startBy for Play
     clock: undefined,           // {beat, at} from the DSP; null when it doesn't answer
-    playingSince: 0, clockOffSince: 0, infoStuck: false,
+    playingSince: 0, recAt: 0,  // when Move started; when Bloom last pressed Move's Record
     range: null,                // {a, b}: steps the progression plays, null for all
     loopHeld: false, loopPicks: [],
     sel: null,                  // pick-then-strike: {pad, pc, q} of the picked chord
     armNotes: [],               // what the strum row plays once the pads are let go: the last chord, or the picked one
     bounce: null,               // recording onto Move tracks, see tickBounce
+    liveTake: null,             // a live take being recorded, see tickLive
     heldStep: -1, movePlaying: false, homeTrack: -1,
     shift: false, del: false,
     mems: new Array(16).fill(null), undo: [], memsAt: 0, setId: '',
@@ -316,7 +317,7 @@ function requestSelect() { st.select = { target: cfg.chordCh, tries: 0, at: 0 };
 
 function tickSelect() {
     const s = st.select;
-    if (st.bounce || s.target < 0 || !chordRoute().auto) return;
+    if (st.bounce || st.liveTake || s.target < 0 || !chordRoute().auto) return;
     const now = Date.now();
     if (selectedTrack() === s.target || s.tries >= 3 || now < s.at) return;
     pressButton(CC_TRACK1 - s.target);
@@ -340,7 +341,7 @@ function flushControls() {
  * once shortly after unless the note has started again. A lost note-off would hang the note.
  */
 /* Record always goes to Move, since that is where the clips are made. */
-function toMove() { return cfg.out !== OUT_USB || !!st.bounce; }
+function toMove() { return cfg.out !== OUT_USB || !!st.bounce || !!st.liveTake; }
 function toUsb() { return cfg.out !== OUT_MOVE; }
 
 /* External gear hears chords on channel 1 and bass on its own track on channel 2. */
@@ -585,7 +586,7 @@ function playChordPad(i, vel) {
     const m = { pc: p.pc, baseQ: p.q, q: t.q || p.q, ext: t.ext, oct: st.oct, voicing: st.voicing, open: false, bassDeg: 0 };
     if (cfg.smooth && st.prev) m.voicing = smoothVoicing(m, st.prev);
     const c = renderChord(m);
-    st.last = { ...c, vel };
+    st.last = { ...c, vel: Math.max(vel, MIN_SAVED_VEL) };
     soundChord(i, c, vel);
 }
 
@@ -636,11 +637,14 @@ function strike(i, vel) {
     const m = { pc: st.sel.pc, baseQ: st.sel.q, q: shape.q, ext: shape.ext, oct: st.oct, voicing: st.voicing, open: false, bassDeg: 0 };
     if (cfg.smooth && st.prev) m.voicing = smoothVoicing(m, st.prev);
     const c = renderChord(m);
-    st.last = { ...c, vel };
+    st.last = { ...c, vel: Math.max(vel, MIN_SAVED_VEL) };
     soundChord(i, c, vel);
 }
 
 /* ---------- steps: chord memories ---------- */
+
+/* A pad brushed on the way to another can read 1; a step saved from that would be silent. */
+const MIN_SAVED_VEL = 30;
 
 /* A saved step plays at the velocity its chord was played with (steps from Capture have none). */
 const memVel = (m, vel = 100) => (m && m.vel) || vel;
@@ -984,19 +988,13 @@ function startRangeOnBar(p) {
  */
 /*
  * Schwung's copy of Move's state can get stuck: seen reading "playing" for minutes with Move
- * stopped. Bloom's clock reads -1 whenever Move is stopped, so once the two disagree for longer
- * than a count-in, the clock decides until Schwung reads "stopped" again.
+ * stopped, often right after Bloom opens. Bloom's clock reads -1 whenever Move is stopped, so the
+ * clock decides, except during the count-in after a Record press, when Move plays before its clock runs.
  */
 function transportPlaying(mi) {
-    if (!mi.playing) { st.infoStuck = false; st.clockOffSince = 0; return false; }
-    if (!st.clock) return true;
-    if (clockBeat() >= 0) { st.clockOffSince = 0; return true; }
-    if (st.infoStuck) return false;
-    if (!st.clockOffSince) st.clockOffSince = Date.now();
-    if (Date.now() - st.clockOffSince < 2 * st.beatsPerBar * beatMs() + 500) return true;
-    st.infoStuck = true;
-    console.log('bloom: Schwung says Move is playing but the clock is stopped; following the clock');
-    return false;
+    if (!mi.playing) return false;
+    if (!st.clock || clockBeat() >= 0) return true;
+    return Date.now() - st.recAt < 2 * st.beatsPerBar * beatMs() + 500;
 }
 
 function followTransport() {
@@ -1048,6 +1046,56 @@ function startBounce() {
     st.dirty = true;
 }
 
+/*
+ * Record: a live take. Bloom stops Move, selects the chord track and presses Record; whatever is
+ * played from then on (pads, steps, Left/Right, the strum plate) lands in a clip there. Record or
+ * Play again stops it.
+ */
+function startLive() {
+    st.player = null;
+    stopHeld();
+    allNotesOff();
+    const now = Date.now();
+    st.liveTake = { stage: 'stop', pressed: false, track: cfg.chordCh, at: now, deadline: now + 2500 };
+    st.dirty = true;
+}
+
+/* Let go of everything first so the note-offs reach the clip, then stop Move. */
+function stopLive() {
+    const l = st.liveTake;
+    stopHeld();
+    allNotesOff();
+    if (l.stage !== 'rec') { st.liveTake = null; toast('RECORDING', 'CANCELLED'); return; }
+    l.stage = 'ending'; l.at = Date.now() + 200;
+}
+
+function tickLive() {
+    const l = st.liveTake;
+    if (!l) return;
+    const now = Date.now();
+    if (l.stage === 'stop') {
+        if (st.movePlaying && now < l.deadline) { if (!l.pressed) { pressButton(CC_PLAY); l.pressed = true; } return; }
+        l.stage = 'select'; l.at = now; l.deadline = now + 3000;
+    } else if (l.stage === 'select') {
+        if (selectedTrack() === l.track || now > l.deadline) { l.stage = 'arm'; l.at = now + 300; }
+        else if (now >= l.at && !st.controlQueue.length) { pressButton(CC_TRACK1 - l.track); l.at = now + 1000; }
+    } else if (l.stage === 'arm') {
+        if (now < l.at) return;
+        pressButton(CC_REC);
+        st.recAt = now;
+        l.stage = 'rec'; l.deadline = now + 8000;
+    } else if (l.stage === 'rec') {
+        if (st.movePlaying) l.started = true;
+        else if (l.started || now > l.deadline) { st.liveTake = null; requestSelect(); toast('RECORDING', l.started ? 'STOPPED' : 'MOVE DID NOT START'); }
+    } else if (l.stage === 'ending' && now >= l.at) {
+        if (st.movePlaying) pressButton(CC_PLAY);
+        st.liveTake = null;
+        requestSelect();
+        toast('RECORDED', 'LIVE TAKE T' + (l.track + 1));
+    }
+    st.dirty = true;
+}
+
 function endBounce(title, value) {
     if (st.rootPad === PLAYER_PAD) stopHeld();
     allNotesOff();
@@ -1087,7 +1135,7 @@ function tickBounce() {
     } else if (b.stage === 'arm') {
         if (now < b.at) return;
         pressButton(CC_REC);
-        b.recAt = now;
+        b.recAt = st.recAt = now;
         b.stage = 'wait'; b.deadline = now + 8000;
     } else if (b.stage === 'wait') {
         b.parts = pass.parts;
@@ -1526,7 +1574,7 @@ function updateLeds() {
     if (sent < LEDS_PER_TICK) buttonLed(CC_PLAY, st.player && !st.player.waiting ? COL.held : COL.off);
     for (let t = 0; t < 4 && sent < LEDS_PER_TICK; t++)
         buttonLed(CC_TRACK1 - t, t === st.trackHeld ? COL.white : t === cfg.chordCh ? COL.maj : cfg.bass && !bassOnChords() && t === cfg.bassCh ? COL.min : COL.off);
-    if (sent < LEDS_PER_TICK) buttonLed(CC_REC, st.bounce ? COL.rec : COL.off);
+    if (sent < LEDS_PER_TICK) buttonLed(CC_REC, st.bounce || st.liveTake ? COL.rec : COL.off);
 }
 
 /* ---------- display ---------- */
@@ -1575,6 +1623,7 @@ function headline() {
         const what = { stop: 'STOPPING', select: 'SELECTING', arm: 'ARMING', wait: 'WAITING', play: 'REC', after: 'SAVING' }[b.stage];
         return what + ' ' + pass.label + ' T' + (pass.track + 1);
     }
+    if (st.liveTake) return (st.liveTake.stage === 'rec' ? (st.movePlaying ? 'REC LIVE' : 'COUNT-IN') : 'ARMING') + ' T' + (st.liveTake.track + 1);
     if (st.player) return st.player.waiting ? 'WAITING' : 'PLAYING';
     return keyLabel() + (cfg.keyLock ? '' : ' FREE') + (cfg.strike ? ' PICK' : '');
 }
@@ -1650,6 +1699,7 @@ globalThis.tick = function () {
     if (st.ticks % CLOCK_READ_TICKS === 0) { readClock(); if (st.trackHeld >= 0) readMoveInfo(); }
     followTransport();
     tickBounce();
+    tickLive();
     tickPlayer();
     tickArp();
     repaintIfDue();
@@ -1714,9 +1764,10 @@ globalThis.onMidiMessageInternal = function (data) {
         toast('PLAY STYLE', cfg.strike ? 'PICK, THEN STRIKE' : 'TOUCH AND PLAY');
     }
     else if (d1 === CC_LOOP) { if (press) { st.loopHeld = true; st.loopPicks = []; st.dirty = true; } else if (st.loopHeld) loopReleased(); }
+    else if (d1 === CC_PLAY && press && st.liveTake) stopLive();
     else if (d1 === CC_PLAY && press) playButton(st.shift);
     else if (d1 === CC_CAPTURE && press) generate(st.shift ? 8 : 4);
-    else if (d1 === CC_REC && press) startBounce();
+    else if (d1 === CC_REC && press) { if (st.liveTake) stopLive(); else if (st.shift) startBounce(); else startLive(); }
     else if (d1 === CC_LEFT || d1 === CC_RIGHT) { if (press) navigate(d1 === CC_RIGHT ? 1 : -1); else navigateUp(); }
     else if (d1 === CC_UP || d1 === CC_DOWN) { if (press) plusMinusDown(d1 === CC_UP ? 1 : -1); else plusMinusUp(); }
     else if (d1 === CC_VOLUME && st.heldStep >= 0) stepKnob(st.heldStep, 4, decodeDelta(d2));
@@ -1757,6 +1808,7 @@ function restoreHomeTrack() {
 globalThis.onUnload = function () {
     st.player = null;
     st.bounce = null;
+    st.liveTake = null;
     allNotesOff();
     while (st.out.length) move_midi_inject_to_move(st.out.shift());
     for (let n = 0; n < 64 && st.usbOut.length; n++) flushUsb();

@@ -4,7 +4,7 @@
 
 **A chord instrument for Ableton Move, built on [Schwung](https://github.com/charlesvestal/schwung).**
 
-Bloom turns Move's pads into a playable chord surface in the spirit of the Telepathic Instruments Orchid. Every pad is a chord in your Set's key. Hold a pad and you hear a full chord on one of Move's own tracks. Colour it with a 7th or a sus, strum it, arpeggiate it, let Bloom suggest a progression, shape every chord in it, then press Record and the chords and bass land in clips on your Move tracks.
+Bloom turns Move's pads into a playable chord surface in the spirit of the Telepathic Instruments Orchid. Every pad is a chord in your Set's key. Hold a pad and you hear a full chord on one of Move's own tracks. Colour it with a 7th or a sus, strum it, arpeggiate it, let Bloom suggest a progression, shape every chord in it, then press Shift + Record and the chords and bass land in clips on your Move tracks, or press Record and play it in yourself.
 
 No laptop, no music theory required, and nothing to route: Bloom plays the instruments already in your Set.
 
@@ -17,7 +17,7 @@ No laptop, no music theory required, and nothing to route: Bloom plays the instr
 - **Program a performance.** Each step remembers how it plays: chord, strum, two-octave strum, arp, pulse, gate, volume, bass, spread and feel. Your progression becomes a part, not a list of chords.
 - **Perform.** Play starts Move and your progression together, locked to Move's clock so they never drift apart. Loop a few steps, jump around with the arrows, and play over the top on the pads.
 - **Pick, then strike.** In pick mode, chord pads choose silently and the top row plays the chosen chord in eight voicings, so one hand picks while the other plays.
-- **Record it back.** Record lays the progression onto your chord track, then the bass onto your bass track, as normal Move clips you can keep editing.
+- **Record it back.** Record takes what you play live (pads, steps, strums) into a clip on your chord track. Shift + Record lays the progression onto your chord track, then the bass onto your bass track. Either way they are normal Move clips you can keep editing.
 
 ## The surface
 
@@ -75,7 +75,8 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Play | Start Move and play the progression (the Loop range) locked to Move's clock; again to stop |
 | Shift + Play | The same with every step, ignoring the Loop range |
 | Hold Loop, tap two steps | Loop just those steps (tap Loop alone for all). While playing, the change lands on the next bar |
-| Record | Record chords to the chord track, then bass to the bass track |
+| Record | Record a live take onto the chord track: everything you play goes in. Record or Play again to stop |
+| Shift + Record | Record the progression: chords to the chord track, then bass to the bass track |
 
 **Hold a step to program it.** The screen shows its eight settings; the ones it sets itself are highlighted.
 
@@ -111,13 +112,14 @@ The bass (knob 6 on, Shift + knob 6 to choose where) can play on the **chord tra
 
 ## External gear
 
-Shift + knob 7 sets where Bloom's notes go: **Move** (the default), **Move + USB**, or **USB** alone. USB is Move's USB-A port, so plug a class-compliant synth or a USB MIDI interface in there. Chords go out on MIDI channel 1 and bass (when it has a track of its own) on channel 2. Record still lays clips onto your Move tracks either way.
+Shift + knob 7 sets where Bloom's notes go: **Move** (the default), **Move + USB**, or **USB** alone. USB is Move's USB-A port, so plug a class-compliant synth or a USB MIDI interface in there. Chords go out on MIDI channel 1 and bass (when it has a track of its own) on channel 2. Recording still lays clips onto your Move tracks either way.
 
 ## Recording tips
 
 - Select empty clip slots on your chord and bass tracks first; Move records into the selected slot.
 - Count-in is fine: Bloom waits for it and starts the chords when Move starts recording.
-- Record plays your Loop range, with every step's own settings, so what you hear is what you get.
+- Shift + Record plays your Loop range, with every step's own settings, so what you hear is what you get.
+- For a live take, set your chords up on the steps, press Record, then press the steps (or Left / Right) in time and strum on top. A live take records the chord track only; bass on its own track is heard but not recorded, so set the bass to play on the chord track (Shift + knob 6) to keep it in the take.
 
 ## Known issues
 

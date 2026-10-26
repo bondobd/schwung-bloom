@@ -11,7 +11,7 @@ test('with count-in, recording starts the chords a bar after Move starts', async
     bloom.button(CC.SHIFT); bloom.button(CC.DELETE); bloom.button(CC.DELETE, false); bloom.button(CC.SHIFT, false);
     await bloom.run(50);
     b.midi.length = 0;
-    bloom.button(CC.REC);
+    bloom.button(CC.SHIFT); bloom.button(CC.REC); bloom.button(CC.SHIFT, false);
     const start = Date.now();
     while (Date.now() - start < 8000 && !b.spoken.some(s => s.startsWith('RECORDED'))) await bloom.run(20);
     const first = b.midi.find(m => m.on && m.note >= 48);

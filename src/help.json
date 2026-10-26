@@ -121,11 +121,18 @@
                 "those. Loop alone:",
                 "all steps.",
                 "",
-                "Record: chords to",
-                "the chord track,",
-                "then bass to the",
-                "bass track. Count-in",
-                "is fine."
+                "Record: a live take",
+                "on the chord track.",
+                "Play steps, pads,",
+                "strums: all goes in.",
+                "Record again: stop.",
+                "",
+                "Shift+Record: the",
+                "progression to the",
+                "chord track, then",
+                "bass to the bass",
+                "track. Count-in is",
+                "fine."
             ]
         },
         {
@@ -209,8 +216,8 @@
                 "channel 1, bass on",
                 "channel 2.",
                 "",
-                "Record always goes",
-                "to Move tracks."
+                "Recording always",
+                "goes to Move tracks."
             ]
         }
     ]
