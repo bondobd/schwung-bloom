@@ -48,7 +48,7 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
         return true;
     };
     globalThis.host_get_move_info = () => ({
-        valid: 1, playing: move.playing, rootNote: move.key, scale: move.scale, tempo: move.tempo, tsUpper: 4,
+        valid: 1, playing: move.infoPlaying ?? move.playing, rootNote: move.key, scale: move.scale, tempo: move.tempo, tsUpper: 4,
         selectedTrack: move.selected, tracks: [0, 1, 2, 3].map(i => ({ selected: i === move.selected }))
     });
     /* Bloom's DSP: Move's beat position while playing, -1 when stopped. */

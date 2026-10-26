@@ -132,7 +132,7 @@ const st = {
     arp: null,                  // {pad, base, notes, ch, vel, i, dir, next, on, offAt}
     player: null,               // a run (see newRun) plus waiting/linked/startBy for Play
     clock: undefined,           // {beat, at} from the DSP; null when it doesn't answer
-    playingSince: 0, countInInClock: null,
+    playingSince: 0, clockOffSince: 0, infoStuck: false,
     range: null,                // {a, b}: steps the progression plays, null for all
     loopHeld: false, loopPicks: [],
     sel: null,                  // pick-then-strike: {pad, pc, q} of the picked chord
@@ -937,11 +937,28 @@ function loopReleased() {
  * Move's transport, every tick. A run waiting for Move locks to its clock when it starts
  * (beat 0 is bar 1); a Play-started run stops with Move; a preview carries on by itself.
  */
+/*
+ * Schwung's copy of Move's state can get stuck: seen reading "playing" for minutes with Move
+ * stopped. Bloom's clock reads -1 whenever Move is stopped, so once the two disagree for longer
+ * than a count-in, the clock decides until Schwung reads "stopped" again.
+ */
+function transportPlaying(mi) {
+    if (!mi.playing) { st.infoStuck = false; st.clockOffSince = 0; return false; }
+    if (!st.clock) return true;
+    if (clockBeat() >= 0) { st.clockOffSince = 0; return true; }
+    if (st.infoStuck) return false;
+    if (!st.clockOffSince) st.clockOffSince = Date.now();
+    if (Date.now() - st.clockOffSince < 2 * st.beatsPerBar * beatMs() + 500) return true;
+    st.infoStuck = true;
+    console.log('bloom: Schwung says Move is playing but the clock is stopped; following the clock');
+    return false;
+}
+
 function followTransport() {
     if (typeof host_get_move_info !== 'function') return;
     const mi = host_get_move_info();
     if (!mi || !mi.valid) return;
-    const playing = !!mi.playing;
+    const playing = transportPlaying(mi);
     if (playing && !st.movePlaying) st.playingSince = Date.now();
     const p = st.player;
     if (p && !st.bounce) {
@@ -1000,14 +1017,16 @@ function cancelBounce() {
 }
 
 /* Where a recording pass's first chord goes, once Move's clock has started. */
+/*
+ * With count-in on, Move's clock either runs through the count-in or starts when recording does.
+ * Which one shows in how long the clock took to start after Record was pressed.
+ */
 function bounceOrigin(b) {
     if (!b.countIn) return 0;
-    if (st.countInInClock == null) {
-        const gap = (b.clockAt - (st.playingSince || b.clockAt)) / beatMs();
-        st.countInInClock = gap < st.beatsPerBar / 2;
-        console.log('bloom: count-in ' + (st.countInInClock ? 'is' : 'is not') + ' in Move\'s clock (gap ' + gap.toFixed(2) + ' beats)');
-    }
-    return st.countInInClock ? st.beatsPerBar : 0;
+    const gap = (b.clockAt - b.recAt) / beatMs();
+    const inClock = gap < st.beatsPerBar / 2;
+    console.log('bloom: count-in ' + (inClock ? 'is' : 'is not') + ' in Move\'s clock (' + gap.toFixed(2) + ' beats after Record)');
+    return inClock ? st.beatsPerBar : 0;
 }
 
 function tickBounce() {
@@ -1023,6 +1042,7 @@ function tickBounce() {
     } else if (b.stage === 'arm') {
         if (now < b.at) return;
         pressButton(CC_REC);
+        b.recAt = now;
         b.stage = 'wait'; b.deadline = now + 8000;
     } else if (b.stage === 'wait') {
         b.parts = pass.parts;
