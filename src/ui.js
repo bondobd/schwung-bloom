@@ -152,6 +152,7 @@ const st = {
     plusMinus: null,            // {dir, at, fired}: a -/+ press on a held step, for long press
     navStep: -1,
     mute: false,
+    repaintAt: [],              // when to draw every light again, after Move drew its own
     trackHeld: -1, trackPressed: false,  // a track button held in Bloom, and whether Move has been sent its press
     select: { target: -1, tries: 0, at: 0 },
     dirty: true, ticks: 0, btnLeds: {}
@@ -297,6 +298,17 @@ function selectedTrack() {
     return i >= 0 ? i : st.selTrack;
 }
 
+/* Move redraws its own lights when it gets a button press, over Bloom's: draw them all again a few times after. */
+function repaintSoon() { const now = Date.now(); st.repaintAt = [now + 150, now + 500, now + 1200]; }
+
+function repaintIfDue() {
+    if (!st.repaintAt.length || Date.now() < st.repaintAt[0]) return;
+    st.repaintAt.shift();
+    invalidateLedCache();
+    ledShown.fill(-1);
+    st.btnLeds = {};
+}
+
 function pressButton(cc) { st.controlQueue.push([0x0b, 0xb0, cc, 127], [0x0b, 0xb0, cc, 0]); }
 
 /* Press the chord track's Track button on Move when it is on Auto and not selected. */
@@ -316,6 +328,7 @@ function tickSelect() {
 function flushControls() {
     if (!st.controlQueue.length || Date.now() < st.controlAt) return;
     move_midi_inject_to_move(st.controlQueue.shift());
+    repaintSoon();
     st.controlAt = Date.now() + 50;
 }
 
@@ -1175,6 +1188,7 @@ function trackDown(t) {
     st.trackHeld = t;
     move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 127]);
     st.trackPressed = true;
+    repaintSoon();
     toast('TRACK ' + (t + 1) + ' VOLUME', trackDb(t) || 'TURN VOLUME KNOB');
 }
 
@@ -1194,7 +1208,7 @@ function ownVolumeKnob(on) {
 
 function trackUp(t) {
     if (st.trackHeld !== t) return;
-    if (st.trackPressed) { move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 0]); requestSelect(); }
+    if (st.trackPressed) { move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 0]); requestSelect(); repaintSoon(); }
     st.trackHeld = -1;
     st.trackPressed = false;
 }
@@ -1633,6 +1647,7 @@ globalThis.tick = function () {
     tickBounce();
     tickPlayer();
     tickArp();
+    repaintIfDue();
     updateLeds();
     if (++st.ticks % 172 === 0) {
         readMoveInfo();
