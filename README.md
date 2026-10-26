@@ -73,7 +73,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Left / Right | Previous or next chord |
 | Play | Start Move and play the progression (the Loop range) locked to Move's clock; again to stop |
 | Shift + Play | The same with every step, ignoring the Loop range |
-| Hold Loop, tap two steps | Loop just those steps (tap Loop alone for all) |
+| Hold Loop, tap two steps | Loop just those steps (tap Loop alone for all). While playing, the change lands on the next bar |
 | Record | Record chords to the chord track, then bass to the bass track |
 
 **Hold a step to program it.** The screen shows its eight settings; the ones it sets itself are highlighted.

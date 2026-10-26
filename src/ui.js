@@ -930,7 +930,18 @@ function loopReleased() {
     }
     st.memsAt = Date.now();
     const p = st.player;
-    if (p) { p.origin = p.clock ? clockBeat() : Date.now(); p.cur = null; }
+    if (p) startRangeOnBar(p);
+}
+
+/* The new Loop range starts on the next bar, like a clip launch; a press just after a bar line counts as on it. */
+function startRangeOnBar(p) {
+    const pos = runPos(p);
+    if (pos < 0) return;
+    const bar = st.beatsPerBar;
+    const next = Math.max(0, Math.ceil((pos - 0.25) / bar) * bar);
+    p.origin += p.clock ? next : next * beatMs();
+    p.cur = null;
+    p.offBeat = -1;
 }
 
 /*
