@@ -106,7 +106,7 @@ Then open Bloom from Schwung's overtake menu.
 
 Since Move 1.5 each track has a MIDI In setting (Shift + track button). Tracks on **Auto** only hear MIDI while selected, so Bloom selects your chord track for you, and hands Move back the track it had when you leave.
 
-The bass (knob 6 on, Shift + knob 6 to choose where) can play on the **chord track** itself or on **a track of its own**. Only one track hears MIDI on Auto, so for live bass on its own track, give that track a MIDI In channel once per Set: leave Bloom, hold Shift, press the bass track's button, set MIDI In to its number. Until then Bloom tells you so and plays the bass on the chord track. Record puts the bass on its own track either way, by recording it in a second pass.
+The bass (knob 6 on, Shift + knob 6 to choose where) can play on the **chord track** itself or on **a track of its own**. Only one track hears MIDI on Auto, so for live bass on its own track, give that track a MIDI In channel once per Set: leave Bloom, hold Shift, press the bass track's button, set MIDI In to its number. Until then Bloom tells you so and plays the bass on the chord track. Record puts the bass on its own track either way, by recording it in a second pass. In Pulse the bass pulses along with the chords.
 
 ## External gear
 

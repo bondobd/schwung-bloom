@@ -448,14 +448,21 @@ function arpNotes(notes, perf) {
     return out;
 }
 
-function startArp(pad, notes, vel, ch, perf) {
+/* `bass` ({ch, note}) pulses along with the chord in Pulse, so the bass drives with it. */
+function startArp(pad, notes, vel, ch, perf, bass = null) {
     stopArp();
-    st.arp = { pad, base: notes, notes: arpNotes(notes, perf), ch, vel, perf, i: 0, dir: 1, next: Date.now(), on: [], offAt: 0 };
+    st.arp = { pad, base: notes, notes: arpNotes(notes, perf), ch, vel, perf, bass, bassOn: false, i: 0, dir: 1, next: Date.now(), on: [], offAt: 0 };
+}
+
+function arpOff(a) {
+    a.on.forEach(n => noteOff(a.ch, n));
+    a.on = [];
+    if (a.bassOn) { noteOff(a.bass.ch, a.bass.note); a.bassOn = false; }
 }
 
 function stopArp() {
     if (!st.arp) return;
-    st.arp.on.forEach(n => noteOff(st.arp.ch, n));
+    arpOff(st.arp);
     st.arp = null;
 }
 
@@ -463,14 +470,14 @@ function tickArp() {
     const a = st.arp;
     if (!a) return;
     const now = Date.now();
-    if (a.on.length && a.offAt && now >= a.offAt) { a.on.forEach(n => noteOff(a.ch, n)); a.on = []; }
+    if ((a.on.length || a.bassOn) && a.offAt && now >= a.offAt) arpOff(a);
     if (now < a.next) return;
-    a.on.forEach(n => noteOff(a.ch, n));
-    a.on = [];
+    arpOff(a);
     const len = stepMs(a.perf);
     if (a.perf.mode === M_PULSE) {
         a.on = a.base.slice();
         a.on.forEach(n => noteOn(a.ch, n, feelVel(a.vel, a.perf)));
+        if (a.bass) { noteOn(a.bass.ch, a.bass.note, feelVel(a.vel, a.perf)); a.bassOn = true; }
         a.offAt = now + len * 0.55;
     } else {
         const n = a.notes[a.i % a.notes.length];
@@ -520,12 +527,16 @@ function soundChord(pad, c, vel, perf = perfFor(null)) {
     const parts = st.bounce ? st.bounce.parts : { chords: true, bass: true };
     if (cfg.sound !== S_MUTED) {
         const ch = chordRoute().ch;
-        if (parts.chords) {
-            if (isArpMode(perf)) startArp(pad, notes, vel, ch, perf);
-            else playNotes(pad, perf.mode === M_STRUM2 ? notes.concat(notes.map(n => n + 12).filter(n => n <= 127)) : notes, vel, ch, true, perf);
+        const route = st.bounce ? bassRecordRoute() : bassRoute();
+        const bass = parts.bass && perf.bass && !route.off ? { ch: route.ch, note: c.bass } : null;
+        if (perf.mode === M_PULSE && (parts.chords || bass)) startArp(pad, parts.chords ? notes : [], vel, ch, perf, bass);
+        else {
+            if (parts.chords) {
+                if (isArpMode(perf)) startArp(pad, notes, vel, ch, perf);
+                else playNotes(pad, perf.mode === M_STRUM2 ? notes.concat(notes.map(n => n + 12).filter(n => n <= 127)) : notes, vel, ch, true, perf);
+            }
+            if (bass) playNotes(pad, [bass.note], vel, bass.ch, false, perf);
         }
-        const bass = st.bounce ? bassRecordRoute() : bassRoute();
-        if (parts.bass && perf.bass && !bass.off) playNotes(pad, [c.bass], vel, bass.ch, false, perf);
     }
     st.dirty = true;
 }
