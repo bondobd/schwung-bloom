@@ -904,10 +904,10 @@ function startPreview() {
 
 /*
  * Play: start Move and the progression together from the Loop range's first step, or stop
- * everything. Shift+Play: the same with every step, ignoring the Loop range.
+ * everything, including Capture's preview. Shift+Play: the same with every step, ignoring the Loop range.
  */
 function playButton(whole) {
-    if (st.movePlaying || (st.player && st.player.linked)) {
+    if (st.movePlaying || st.player) {
         if (st.movePlaying) pressButton(CC_PLAY);
         stopPlayer();
         return;
