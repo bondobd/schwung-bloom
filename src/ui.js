@@ -147,7 +147,7 @@ const st = {
     toast: null,                // {title, value, until}
     knobAcc: [0, 0, 0, 0, 0, 0, 0, 0],
     inModes: [], selTrack: -1,  // per track: 'auto' | 'none' | channel 0-15, from the Set file
-    controlQueue: [], controlAt: 0,
+    controlQueue: [], controlAt: 0, echoes: [],
     out: [], live: new Set(), recheck: [],  // paced MIDI out, notes Move is sounding, note-offs to repeat
     usbOut: [], usbLive: new Set(),         // the same for the USB-A port
     plusMinus: null,            // {dir, at, fired}: a -/+ press on a held step, for long press
@@ -310,6 +310,28 @@ function repaintIfDue() {
     st.btnLeds = {};
 }
 
+/*
+ * Some Schwung builds (1.8 on Move 2.1.1) hand a button Bloom injects into Move straight back to
+ * Bloom, which then took its own Play press for a second one. Each injected button is remembered
+ * briefly and the first matching message back is dropped.
+ */
+const ECHO_MS = 150;
+
+function injectToMove(pkt) {
+    if ((pkt[1] & 0xf0) === 0xb0) st.echoes.push({ cc: pkt[2], val: pkt[3], at: Date.now() });
+    move_midi_inject_to_move(pkt);
+}
+
+function isEcho(type, d1, d2) {
+    if (type !== 0xb0 || !st.echoes.length) return false;
+    const now = Date.now();
+    st.echoes = st.echoes.filter(e => now - e.at < ECHO_MS);
+    const i = st.echoes.findIndex(e => e.cc === d1 && e.val === d2);
+    if (i < 0) return false;
+    st.echoes.splice(i, 1);
+    return true;
+}
+
 function pressButton(cc) { st.controlQueue.push([0x0b, 0xb0, cc, 127], [0x0b, 0xb0, cc, 0]); }
 
 /* Press the chord track's Track button on Move when it is on Auto and not selected. */
@@ -328,7 +350,7 @@ function tickSelect() {
 /* Control presses go out one per 50 ms so Move sees press and release separately. */
 function flushControls() {
     if (!st.controlQueue.length || Date.now() < st.controlAt) return;
-    move_midi_inject_to_move(st.controlQueue.shift());
+    injectToMove(st.controlQueue.shift());
     repaintSoon();
     st.controlAt = Date.now() + 50;
 }
@@ -813,7 +835,10 @@ function navigateUp() {
 }
 
 function octave(dir) {
+    const was = st.oct;
     st.oct = clamp(st.oct + dir, -2, 2);
+    /* Smooth voicing leads from the last chord, which would pull the next one back: move it too. */
+    if (st.prev) st.prev = st.prev.map(n => n + 12 * (st.oct - was));
     toast('OCTAVE', signed(st.oct));
     replayHeld();
 }
@@ -843,6 +868,16 @@ function readClock() {
     if (!isFinite(beat)) return;
     st.clock = { beat, at: Date.now() };
     if (bpm > 20 && bpm < 400) st.tempo = bpm;
+}
+
+/*
+ * The bar Move's clock is in when Bloom first sees it run. It should start at 0, but has been
+ * seen starting two bars in; a quarter bar of slack keeps a reading just before a barline on it.
+ */
+function startBar() {
+    const b = clockBeat();
+    if (b < 0) return 0;
+    return Math.max(0, Math.floor(b / st.beatsPerBar + 0.25)) * st.beatsPerBar;
 }
 
 function clockBeat() {
@@ -1005,7 +1040,7 @@ function followTransport() {
     if (playing && !st.movePlaying) st.playingSince = Date.now();
     const p = st.player;
     if (p && !st.bounce) {
-        if (p.waiting && playing && clockBeat() >= 0) { p.waiting = false; p.clock = true; p.origin = 0; p.cur = null; }
+        if (p.waiting && playing && clockBeat() >= 0) { p.waiting = false; p.clock = true; p.origin = startBar(); p.cur = null; }
         else if (p.waiting && p.startBy && Date.now() > p.startBy) { p.waiting = false; p.origin = Date.now(); }
         else if (!p.waiting && !p.clock && playing && clockBeat() >= 0) rebase(p, true);
         else if (p.clock && clockBeat() < 0) { if (p.linked) stopPlayer(); else rebase(p, false); }
@@ -1056,7 +1091,7 @@ function startLive() {
     stopHeld();
     allNotesOff();
     const now = Date.now();
-    st.liveTake = { stage: 'stop', pressed: false, track: cfg.chordCh, at: now, deadline: now + 2500 };
+    st.liveTake = { stage: 'stop', pressed: false, track: cfg.chordCh, at: now, deadline: now + 2500, countIn: countInOn() };
     st.dirty = true;
 }
 
@@ -1077,15 +1112,20 @@ function tickLive() {
         if (st.movePlaying && now < l.deadline) { if (!l.pressed) { pressButton(CC_PLAY); l.pressed = true; } return; }
         l.stage = 'select'; l.at = now; l.deadline = now + 3000;
     } else if (l.stage === 'select') {
-        if (selectedTrack() === l.track || now > l.deadline) { l.stage = 'arm'; l.at = now + 300; }
-        else if (now >= l.at && !st.controlQueue.length) { pressButton(CC_TRACK1 - l.track); l.at = now + 1000; }
+        if (selectStage(l, l.track, now)) l.stage = 'arm';
     } else if (l.stage === 'arm') {
         if (now < l.at) return;
         pressButton(CC_REC);
-        st.recAt = now;
+        l.recAt = st.recAt = now;
         l.stage = 'rec'; l.deadline = now + 8000;
+    } else if (l.stage === 'running') {
+        const at = recordWhileRunning(l, now);
+        if (at === false) { st.liveTake = null; toast('RECORDING', 'MOVE DID NOT START'); }
+        else if (at !== null) { l.stage = 'rec'; l.started = true; }
     } else if (l.stage === 'rec') {
-        if (st.movePlaying) l.started = true;
+        const moving = st.clock ? clockBeat() >= 0 : st.movePlaying;
+        if (!l.started && armedOnly(l, now)) { startRunning(l); l.stage = 'running'; }
+        else if (moving) l.started = true;
         else if (l.started || now > l.deadline) { st.liveTake = null; requestSelect(); toast('RECORDING', l.started ? 'STOPPED' : 'MOVE DID NOT START'); }
     } else if (l.stage === 'ending' && now >= l.at) {
         if (st.movePlaying) pressButton(CC_PLAY);
@@ -1114,6 +1154,49 @@ function cancelBounce() {
  * With count-in on, Move's clock either runs through the count-in or starts when recording does.
  * Which one shows in how long the clock took to start after Record was pressed.
  */
+/*
+ * Move records on its selected track. Its button is pressed every time rather than trusting
+ * Schwung's selectedTrack, which has been seen going stale; pressing it again does no harm.
+ */
+function selectStage(r, track, now) {
+    if (!r.selPressed) {
+        if (now < r.at || st.controlQueue.length) return false;
+        pressButton(CC_TRACK1 - track);
+        r.selPressed = true; r.at = now + 400;
+        return false;
+    }
+    if (now < r.at || st.controlQueue.length) return false;
+    r.selPressed = false; r.at = now + 100;
+    return true;
+}
+
+/*
+ * On Move 2.1.1 Record pressed while stopped can just arm Move without starting it. When the
+ * clock hasn't started well after the count-in would have ended, Bloom disarms, starts Move with
+ * Play and presses Record while it runs, which records from Move's next bar.
+ */
+function armedOnly(r, now) {
+    return !!st.clock && clockBeat() < 0 && now - r.recAt > (r.countIn ? st.beatsPerBar * beatMs() : 0) + 1500;
+}
+
+function startRunning(r) {
+    console.log('bloom: Record only armed Move; starting it with Play and recording from a bar');
+    pressButton(CC_REC);
+    pressButton(CC_PLAY);
+    r.started = Date.now();
+}
+
+/* Press Record well inside a bar; returns the bar recording starts on, null to wait, false to give up. */
+function recordWhileRunning(r, now) {
+    const b = clockBeat(), bar = st.beatsPerBar;
+    if (b < 0) return now - r.started > 4000 ? false : null;
+    const phase = b % bar;
+    if (phase < 0.25 || phase > bar - 1) return null;
+    pressButton(CC_REC);
+    st.recAt = now;
+    return Math.ceil(b / bar) * bar;
+}
+
 function bounceOrigin(b) {
     if (!b.countIn) return 0;
     const gap = (b.clockAt - b.recAt) / beatMs();
@@ -1130,8 +1213,7 @@ function tickBounce() {
         if (st.movePlaying && now < b.deadline) { if (!b.pressed) { pressButton(CC_PLAY); b.pressed = true; } return; }
         b.stage = 'select'; b.at = now; b.deadline = now + 3000;
     } else if (b.stage === 'select') {
-        if (selectedTrack() === pass.track || now > b.deadline) { b.stage = 'arm'; b.at = now + 300; }
-        else if (now >= b.at && !st.controlQueue.length) { pressButton(CC_TRACK1 - pass.track); b.at = now + 1000; }
+        if (selectStage(b, pass.track, now)) b.stage = 'arm';
     } else if (b.stage === 'arm') {
         if (now < b.at) return;
         pressButton(CC_REC);
@@ -1142,13 +1224,20 @@ function tickBounce() {
         const bar = st.beatsPerBar * beatMs();
         if (st.movePlaying && clockBeat() >= 0) {
             b.clockAt = now;
-            b.run = newRun({ clock: true, origin: bounceOrigin(b), once: true });
+            b.run = newRun({ clock: true, origin: startBar() + bounceOrigin(b), once: true });
             b.stage = 'play';
-        } else if (st.movePlaying && now - (st.playingSince || now) > (b.countIn ? bar : 0) + 600) {
+        } else if (armedOnly(b, now)) {
+            startRunning(b);
+            b.stage = 'running';
+        } else if (!st.clock && st.movePlaying && now - (st.playingSince || now) > (b.countIn ? bar : 0) + 600) {
             console.log('bloom: no clock from Move, recording on Bloom\'s own timing');
             b.run = newRun({ origin: (st.playingSince || now) + (b.countIn ? st.beatsPerBar * beatMs() : 0), once: true });
             b.stage = 'play';
         } else if (now > b.deadline) endBounce('RECORD', 'MOVE DID NOT START');
+    } else if (b.stage === 'running') {
+        const at = recordWhileRunning(b, now);
+        if (at === false) endBounce('RECORD', 'MOVE DID NOT START');
+        else if (at !== null) { b.run = newRun({ clock: true, origin: at, once: true }); b.stage = 'play'; }
     } else if (b.stage === 'play') {
         if (stepRun(b.run)) { b.step = b.run.step; return; }
         stopHeld(); allNotesOff();
@@ -1239,7 +1328,7 @@ function trackDown(t) {
         return;
     }
     st.trackHeld = t;
-    move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 127]);
+    injectToMove([0x0b, 0xb0, CC_TRACK1 - t, 127]);
     st.trackPressed = true;
     repaintSoon();
     toast('TRACK ' + (t + 1) + ' VOLUME', trackDb(t) || 'TURN VOLUME KNOB');
@@ -1261,7 +1350,7 @@ function ownVolumeKnob(on) {
 
 function trackUp(t) {
     if (st.trackHeld !== t) return;
-    if (st.trackPressed) { move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - t, 0]); requestSelect(); repaintSoon(); }
+    if (st.trackPressed) { injectToMove([0x0b, 0xb0, CC_TRACK1 - t, 0]); requestSelect(); repaintSoon(); }
     st.trackHeld = -1;
     st.trackPressed = false;
 }
@@ -1724,9 +1813,11 @@ globalThis.tick = function () {
 globalThis.onMidiMessageInternal = function (data) {
     if (isNoiseMessage(data)) return;
     const type = data[0] & 0xf0, d1 = data[1], d2 = data[2];
+    if (isEcho(type, d1, d2)) return;
 
     if (st.bounce) {
         if (type === 0xb0 && d1 === CC_REC && d2 > 0) cancelBounce();
+        if (type === 0xb0 && d1 === CC_SHIFT) st.shift = d2 > 0;
         return;
     }
     if (type === 0x90 || type === 0x80) {
@@ -1801,8 +1892,8 @@ globalThis.onMidiMessageExternal = function () {};
 function restoreHomeTrack() {
     const home = st.homeTrack;
     if (home < 0 || home > 3 || selectedTrack() === home) return;
-    move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - home, 127]);
-    move_midi_inject_to_move([0x0b, 0xb0, CC_TRACK1 - home, 0]);
+    injectToMove([0x0b, 0xb0, CC_TRACK1 - home, 127]);
+    injectToMove([0x0b, 0xb0, CC_TRACK1 - home, 0]);
 }
 
 globalThis.onUnload = function () {

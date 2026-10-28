@@ -86,8 +86,12 @@ export function buildChord(pc, q, ext, opts = {}) {
     if (opts.prev && opts.prev.length) {
         const target = center(opts.prev);
         let best = 0, bestD = Infinity;
+        /* Only voicings within a fifth of root position, or chords drift away from the octave. */
+        const home = center(base);
         for (let k = -4; k <= 6; k++) {
-            const d = Math.abs(center(invert(base, k)) - target);
+            const c = center(invert(base, k));
+            if (Math.abs(c - home) > 7) continue;
+            const d = Math.abs(c - target);
             if (d < bestD) { bestD = d; best = k; }
         }
         v += best;

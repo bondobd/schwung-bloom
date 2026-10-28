@@ -2,6 +2,8 @@
 
 # Bloom
 
+> **A note on how this is made.** I'm aggressively and unashamedly using AI to build Bloom. I'm also glad to look at anything myself and reply as a human whenever anyone asks. I'm playing with this a lot and trying to make it something that I and others love, so all feedback and pull requests are welcome!
+
 **A chord instrument for Ableton Move, built on [Schwung](https://github.com/charlesvestal/schwung).**
 
 Bloom turns Move's pads into a playable chord surface in the spirit of the Telepathic Instruments Orchid. Every pad is a chord in your Set's key. Hold a pad and you hear a full chord on one of Move's own tracks. Colour it with a 7th or a sus, strum it, arpeggiate it, let Bloom suggest a progression, shape every chord in it, then press Shift + Record and the chords and bass land in clips on your Move tracks, or press Record and play it in yourself.

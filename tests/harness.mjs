@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const SET_ID = '6b99d1a6-371b-420e-9684-ae71874b8697';
 
-export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, settings = {}, inputModes = ['auto', 'auto', 'auto', 'auto'], countIn = false } = {}) {
+export async function loadBloom({ recArmsOnly = false, staleSelected = -1, echo = false, key = 0, scale = 'Major', tempo = 120, settings = {}, inputModes = ['auto', 'auto', 'auto', 'auto'], countIn = false } = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'bloom-'));
     const ui = readFileSync(join(here, '../src/ui.js'), 'utf8')
         .replace("'/data/UserData/schwung/shared/input_filter.mjs'", JSON.stringify(pathToFileURL(join(here, 'stubs/input_filter.mjs')).href))
@@ -32,12 +32,15 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
     };
     globalThis.__bloom = b;
     globalThis.move_midi_inject_to_move = p => {
+        /* Schwung 1.8 on Move 2.1.1 hands injected buttons back to the module. */
+        if (echo && (p[0] >> 4) === 0 && (p[1] & 0xf0) === 0xb0) setTimeout(() => globalThis.onMidiMessageInternal([p[1], p[2], p[3]]), 5);
         if ((p[0] >> 4) === 2) { b.midi.push({ t: Date.now(), on: (p[1] & 0xf0) === 0x90, ch: p[1] & 15, note: p[2], vel: p[3] }); return; }
         if (p[3] !== 127) return;
         b.controls.push(p[2]);
         if (p[2] >= 40 && p[2] <= 43) move.selected = 43 - p[2];
         const start = () => { move.playing = true; move.startedAt = Date.now(); };
-        if (p[2] === 86) setTimeout(start, 20);
+        /* Record starts a stopped Move (or only arms it, as on Move 2.1.1); a running Move keeps going. */
+        if (p[2] === 86) { if (move.armed) move.armed = false; else if (!move.playing && recArmsOnly) move.armed = true; else if (!move.playing) setTimeout(start, 20); }
         if (p[2] === 85) { const was = move.playing; setTimeout(() => (was ? (move.playing = false) : start()), 20); }
     };
     /* USB-A out: refuses while b.usbFull is above zero, like Schwung's ring when it fills. */
@@ -49,7 +52,8 @@ export async function loadBloom({ key = 0, scale = 'Major', tempo = 120, setting
     };
     globalThis.host_get_move_info = () => ({
         valid: 1, playing: move.infoPlaying ?? move.playing, rootNote: move.key, scale: move.scale, tempo: move.tempo, tsUpper: 4,
-        selectedTrack: move.selected, tracks: [0, 1, 2, 3].map(i => ({ selected: i === move.selected }))
+        selectedTrack: staleSelected >= 0 ? staleSelected : move.selected,
+        tracks: [0, 1, 2, 3].map(i => ({ selected: i === (staleSelected >= 0 ? staleSelected : move.selected) }))
     });
     /* Bloom's DSP: Move's beat position while playing, -1 when stopped. */
     globalThis.host_module_get_param = key => {

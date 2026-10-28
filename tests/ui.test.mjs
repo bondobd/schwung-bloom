@@ -61,13 +61,14 @@ test('Record lays chords on the chord track, then bass on the bass track', async
     bloom.button(CC.SHIFT); bloom.button(CC.REC); bloom.button(CC.SHIFT, false);
     const start = Date.now();
     while (Date.now() - start < 8000 && !b.spoken.some(s => s.startsWith('RECORDED'))) await bloom.run(20);
-    assert.deepEqual(b.controls, [86, 85, 42, 86, 85]);
+    assert.deepEqual(b.controls, [41, 86, 85, 42, 86, 85], "select T3, record, stop; select T2, record, stop");
     assert.ok(b.midi.some(m => m.on && m.ch === 2 && m.note >= 48), 'chords on channel 3');
     assert.ok(b.midi.some(m => m.on && m.ch === 1 && m.note < 48), 'bass on channel 2');
     assert.ok(b.spoken.includes('RECORDED, CHORDS T3 + BASS T2'));
 });
 
 test('Play locks the progression to Move\'s clock and toggles', async () => {
+    await bloom.run(200);   // a press right after Bloom's own Play press would be taken for its echo
     b.controls.length = 0; b.midi.length = 0;
     bloom.button(CC.PLAY); await bloom.run(600);
     assert.ok(b.controls.includes(85), 'Move started');
