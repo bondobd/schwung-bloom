@@ -18,8 +18,8 @@ test('MIDI out starts on Move only', async () => {
     assert.ok(b.midi.some(m => m.on));
 });
 
-test('Shift + knob 7 sends chords on channel 1 and bass on channel 2 over USB, Move silent', async () => {
-    bloom.button(CC.SHIFT); bloom.turn(KNOB7, 8); bloom.button(CC.SHIFT, false); await bloom.run(10);
+test('MIDI out USB (Settings) sends chords on channel 1 and bass on channel 2 over USB, Move silent', async () => {
+    bloom.setting(2, 2); await bloom.run(10);
     assert.match(bloom.text(), /MIDI OUT: USB/);
     b.midi.length = 0; b.usb.length = 0;
     bloom.pad(0, 0); await bloom.run(30);
@@ -44,7 +44,7 @@ test('a full USB port delays notes instead of dropping them', async () => {
 test('switching back to Move releases what USB was playing', async () => {
     b.usb.length = 0;
     bloom.pad(0, 0); await bloom.run(30);
-    bloom.button(CC.SHIFT); bloom.turn(KNOB7, -8); bloom.button(CC.SHIFT, false); await bloom.run(30);
+    bloom.setting(2, -2); await bloom.run(30);
     assert.deepEqual(usbHanging(), []);
     bloom.pad(0, 0, false); await bloom.run(30);
 });

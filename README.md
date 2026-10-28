@@ -18,7 +18,7 @@ No laptop, no music theory required, and nothing to route: Bloom plays the instr
 - **Shape every chord.** Hold a step and spin the wheel for a new voicing of just that chord, transpose it, change its octave, and set how long it lasts.
 - **Program a performance.** Each step remembers how it plays: chord, strum, two-octave strum, arp, pulse, gate, volume, bass, spread and feel. Your progression becomes a part, not a list of chords.
 - **Perform.** Play starts Move and your progression together, locked to Move's clock so they never drift apart. Loop a few steps, jump around with the arrows, and play over the top on the pads.
-- **Pick, then strike.** In pick mode, chord pads choose silently and the top row plays the chosen chord in eight voicings, so one hand picks while the other plays.
+- **Pick, then strike.** In pick mode (Settings: Play style), chord pads choose silently and the top row plays the chosen chord in eight voicings, so one hand picks while the other plays.
 - **Record it back.** Record takes what you play live (pads, steps, strums) into a clip on your chord track. Shift + Record lays the progression onto your chord track, then the bass onto your bass track. Either way they are normal Move clips you can keep editing.
 
 ## The surface
@@ -42,7 +42,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 
 | Control | Does |
 |---|---|
-| Chord pad | Play the chord. In Hold, tap again to stop it |
+| Chord pad | Play the chord. In Hold (Shift + knob 4), tap again to stop it |
 | Top row (held) | Colour the chord you play |
 | Top row (tapped while holding a chord) | The colour stays on that chord, for strumming; tap again to take it off |
 | Colours together | One of each kind combines: a sus, dim or aug, a 7th or 6th, and add9 (so 7 + sus4 is 7sus4, Maj7 + Add9 is maj9). A new one replaces the last of its kind |
@@ -50,8 +50,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Wheel | Invert the chord you're holding |
 | Wheel click | Smooth voice leading on or off |
 | Shift + wheel click | Out-of-key chords playable or hidden |
-| - / + | Octave. Shift: move the chord rows a semitone |
-| Shift + Loop | Touch and play, or pick then strike |
+| - / + | Octave |
 | Delete + chord pad | Stop a held chord |
 | Shift + Delete | All notes off |
 
@@ -85,18 +84,24 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 
 | While holding a step | Does |
 |---|---|
-| Knobs 1 to 8 | Play mode, length, speed, gate, volume, bass, spread, feel. Turn to the start for DEFAULT (follow the global knob); gate and volume default to 100%, at the end |
+| Knobs 1 to 8 | Play mode, length, speed, gate, volume, bass, spread, feel. Turn to the start for DEFAULT (follow the global knob); volume defaults to 100%, at the end |
 | Wheel | A new take on the chord (left goes back) |
 | Wheel click | Back to a plain chord |
 | - / + | Transpose a semitone. Long press: an octave |
 | Volume knob | Volume |
 
-**Knobs.** Touch a knob to see it. **Hold Menu** to see what all eight do right now (hold Shift too for the Shift layer); the values that differ from the usual are highlighted.
+**Knobs.** Touch a knob to see it. On their own they shape how chords play, the same eight as on a held step. With Shift they set how the pads behave and add to the sound. **Hold Menu** to see what all eight do right now (hold Shift too for the Shift layer); the values that differ from the usual are highlighted.
 
 | Knobs | 1 to 8 |
 |---|---|
-| On their own | Play mode, step length, strum speed or arp rate, sound (on, muted, hold), volume, bass, spread, feel |
-| With Shift | Key, scale, (free), (free), chord track, bass track, MIDI out, pad colours (Ocean, Moonlight, Sunset, Classic) |
+| On their own | Play mode, step length, strum speed or arp rate, gate, volume, bass, spread, feel |
+| With Shift | Key, scale, chord rows, sound (on, muted, hold), strum direction (up, down, alternate), swing, register, (free) |
+
+- **Gate** shortens each step of a playing progression; a step's own gate overrides it. Pads sound as long as you hold them.
+- **Swing** pushes every second arp or pulse note late, from 50% (straight) to 75%.
+- **Register** keeps chords from the pads near a low, middle or high pitch, so smooth voice leading can't drift too far. FREE leaves them where they fall; -/+ still moves the octave.
+
+**Settings** (tap Menu) hold what you set once per Set: the chord track, the bass track, MIDI out, pad colours (Ocean, Moonlight, Sunset, Classic) and play style (touch and play, or pick then strike). Turn the wheel to a row, click, turn to change it, click again. Tap Menu or Back to leave.
 
 **Key and scale in Bloom.** Shift + knobs 1 and 2 set a key for Bloom alone, so you can try keys without leaving it; the key shows a `*` while it differs from the Set's. It lasts until the Set's key changes on Move, and Move's own pads and scale stay as they are (Schwung can read Move's key but not set it).
 
@@ -118,18 +123,18 @@ Then open Bloom from Schwung's overtake menu.
 
 Since Move 1.5 each track has a MIDI In setting (Shift + track button). Tracks on **Auto** only hear MIDI while selected, so Bloom selects your chord track for you, and hands Move back the track it had when you leave.
 
-The bass (knob 6 on, Shift + knob 6 to choose where) can play on the **chord track** itself or on **a track of its own**. Only one track hears MIDI on Auto, so for live bass on its own track, give that track a MIDI In channel once per Set: leave Bloom, hold Shift, press the bass track's button, set MIDI In to its number. Until then Bloom tells you so and plays the bass on the chord track. Record puts the bass on its own track either way, by recording it in a second pass. In Pulse the bass pulses along with the chords.
+The bass (knob 6 on, Settings: Bass on to choose where) can play on the **chord track** itself or on **a track of its own**. Only one track hears MIDI on Auto, so for live bass on its own track, give that track a MIDI In channel once per Set: leave Bloom, hold Shift, press the bass track's button, set MIDI In to its number. Until then Bloom tells you so and plays the bass on the chord track. Record puts the bass on its own track either way, by recording it in a second pass. In Pulse the bass pulses along with the chords.
 
 ## External gear
 
-Shift + knob 7 sets where Bloom's notes go: **Move** (the default), **Move + USB**, or **USB** alone. USB is Move's USB-A port, so plug a class-compliant synth or a USB MIDI interface in there. Chords go out on MIDI channel 1 and bass (when it has a track of its own) on channel 2. Recording still lays clips onto your Move tracks either way.
+MIDI out in Settings sets where Bloom's notes go: **Move** (the default), **Move + USB**, or **USB** alone. USB is Move's USB-A port, so plug a class-compliant synth or a USB MIDI interface in there. Chords go out on MIDI channel 1 and bass (when it has a track of its own) on channel 2. Recording still lays clips onto your Move tracks either way.
 
 ## Recording tips
 
 - Select empty clip slots on your chord and bass tracks first; Move records into the selected slot.
 - Count-in is fine: Bloom waits for it and starts the chords when Move starts recording.
 - Shift + Record plays your Loop range, with every step's own settings, so what you hear is what you get.
-- For a live take, set your chords up on the steps, press Record, then press the steps (or Left / Right) in time and strum on top. A live take records the chord track only; bass on its own track is heard but not recorded, so set the bass to play on the chord track (Shift + knob 6) to keep it in the take.
+- For a live take, set your chords up on the steps, press Record, then press the steps (or Left / Right) in time and strum on top. A live take records the chord track only; bass on its own track is heard but not recorded, so set the bass to play on the chord track (Settings: Bass on) to keep it in the take.
 
 ## Known issues
 

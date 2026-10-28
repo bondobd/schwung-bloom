@@ -19,7 +19,8 @@ import {
 
 const PAD0 = 68, STEP0 = 16;
 const CC_JOG = 14, CC_JOG_CLICK = 3, CC_KNOB1 = 71, CC_KNOB8 = 78;
-const CC_MENU = 50;
+const CC_MENU = 50, CC_BACK = 51;
+const MENU_HOLD_MS = 250;
 const CC_SHIFT = 49, CC_DELETE = 119, CC_UNDO = 56, CC_LOOP = 58, CC_CAPTURE = 52;
 const CC_DOWN = 54, CC_UP = 55, CC_LEFT = 62, CC_RIGHT = 63, CC_PLAY = 85, CC_REC = 86, CC_VOLUME = 79, CC_MUTE = 88;
 const OUT_PER_TICK = 6;
@@ -72,7 +73,11 @@ const SPREADS = ['CLOSE', 'OPEN', 'WIDE'];
 const OUTS = ['MOVE', 'MOVE + USB', 'USB'];
 const OUT_MOVE = 0, OUT_USB = 2;
 const STEP_BEATS = [1, 2, 3, 4, 6, 8, 12, 16];
-const KNOB_NAMES = ['PLAY MODE', 'STEP LENGTH', 'SPEED', 'SOUND', 'VOLUME', 'BASS', 'SPREAD', 'FEEL'];
+const KNOB_NAMES = ['PLAY MODE', 'STEP LENGTH', 'SPEED', 'GATE', 'VOLUME', 'BASS', 'SPREAD', 'FEEL'];
+const STRUM_DIRS = ['UP', 'DOWN', 'ALTERNATE'];
+const SWINGS = [50, 55, 60, 65, 70, 75];
+const REGISTERS = ['FREE', 'LOW', 'MID', 'HIGH'];
+const REGISTER_CENTRE = [0, 52, 60, 67];
 const SHORT_MODES = ['CHORD', 'STRUM', 'STRUM2', 'SLOP', 'ARP UP', 'ARP UD', 'PULSE'];
 const GATES = [0.25, 0.5, 0.75, 1];
 const TYPES = [['q', 'sus2', 'SUS2'], ['q', 'sus', 'SUS4'], ['q', 'dim', 'DIM'], ['q', 'aug', 'AUG'],
@@ -86,7 +91,8 @@ const STRIKES = [
 /* Saved between sessions. */
 const cfg = {
     v: SETTINGS_VERSION, mode: M_STRUM, strumMs: 35, rate: 1, bass: false, chordCh: 2, bassCh: 1,
-    smooth: true, spread: 0, feel: 0, sound: S_ON, keyLock: true, vol: 100, beats: 0, strike: false, theme: 0, out: OUT_MOVE
+    smooth: true, spread: 0, feel: 0, sound: S_ON, keyLock: true, vol: 100, beats: 0, strike: false, theme: 0, out: OUT_MOVE,
+    gate: 1, strumDir: 0, swing: 0, register: 0
 };
 
 const st = {
@@ -116,7 +122,9 @@ const st = {
     takes: [], stepTakes: [],   // earlier versions, for turning the wheel back
     toast: null,                // {title, value, until}
     knobAcc: new Array(24).fill(0),   // detents towards the next value, per page knob
-    menuHeld: false,            // Menu shows the knob map while held
+    menu: null,                 // {at, shown, used}: Menu held; the knob map shows after a moment
+    settings: null,             // {i, edit}: the Settings list a tap on Menu opens
+    strumDown: false,           // the last strum's direction, for ALTERNATE
     moveRoot: -1, moveScaleName: '', keyOwn: false,  // the Set's key, and whether Bloom overrides it
     inModes: [], selTrack: -1,  // per track: 'auto' | 'none' | channel 0-15, from the Set file
     controlQueue: [], controlAt: 0, echoes: [],
@@ -167,6 +175,10 @@ function loadState() {
     cfg.feel = clamp(cfg.feel, 0, 10);
     cfg.strumMs = clamp(cfg.strumMs, 5, 150);
     cfg.theme = clamp(cfg.theme, 0, THEMES.length - 1);
+    if (!GATES.includes(cfg.gate)) cfg.gate = 1;
+    cfg.strumDir = clamp(cfg.strumDir, 0, STRUM_DIRS.length - 1);
+    cfg.swing = clamp(cfg.swing, 0, SWINGS.length - 1);
+    cfg.register = clamp(cfg.register, 0, REGISTERS.length - 1);
     if (cfg.beats && !STEP_BEATS.includes(cfg.beats)) cfg.beats = 0;
     loadMems();
 }
@@ -420,7 +432,7 @@ function perfFor(m) {
     return {
         mode: own('mode') ?? cfg.mode, rate: own('rate') ?? cfg.rate, strumMs: own('strumMs') ?? cfg.strumMs,
         spread: own('spread') ?? cfg.spread, feel: own('feel') ?? cfg.feel, bass: own('bassOn') ?? cfg.bass,
-        gate: own('gate') ?? 1, vol: (own('vol') ?? 100) * cfg.vol / 10000
+        gate: own('gate') ?? cfg.gate, vol: (own('vol') ?? 100) * cfg.vol / 10000
     };
 }
 
@@ -435,9 +447,11 @@ function feelVel(vel, perf) {
 function playNotes(pad, notes, vel, ch, spread, perf) {
     const now = Date.now();
     const list = st.sounding.get(pad) || [];
+    const strum = spread && (perf.mode === M_STRUM || perf.mode === M_STRUM2);
+    if (strum) st.strumDown = cfg.strumDir === 2 ? !st.strumDown : cfg.strumDir === 1;
     notes.forEach((note, i) => {
         let dt = 0, v = feelVel(vel, perf);
-        if (spread && (perf.mode === M_STRUM || perf.mode === M_STRUM2)) dt = i * perf.strumMs;
+        if (strum) dt = (st.strumDown ? notes.length - 1 - i : i) * perf.strumMs;
         else if (spread && perf.mode === M_SLOP) { dt = Math.random() * 45; v = clamp(Math.round(v * (0.75 + Math.random() * 0.4)), 1, 127); }
         const entry = { ch, note, on: false };
         st.queue.push({ at: now + dt, pad, ch, note, vel: v, entry });
@@ -470,7 +484,7 @@ function arpNotes(notes, perf) {
 /* `bass` ({ch, note}) pulses along with the chord in Pulse, so the bass drives with it. */
 function startArp(pad, notes, vel, ch, perf, bass = null) {
     stopArp();
-    st.arp = { pad, base: notes, notes: arpNotes(notes, perf), ch, vel, perf, bass, bassOn: false, i: 0, dir: 1, next: Date.now(), on: [], offAt: 0 };
+    st.arp = { pad, base: notes, notes: arpNotes(notes, perf), ch, vel, perf, bass, bassOn: false, i: 0, k: 0, dir: 1, next: Date.now(), on: [], offAt: 0 };
 }
 
 function arpOff(a) {
@@ -492,7 +506,9 @@ function tickArp() {
     if ((a.on.length || a.bassOn) && a.offAt && now >= a.offAt) arpOff(a);
     if (now < a.next) return;
     arpOff(a);
-    const len = stepMs(a.perf);
+    /* Swing lengthens every first step of a pair and shortens the second. */
+    const sw = SWINGS[cfg.swing] / 100;
+    const len = 2 * stepMs(a.perf) * (a.k++ % 2 ? 1 - sw : sw);
     if (a.perf.mode === M_PULSE) {
         a.on = a.base.slice();
         a.on.forEach(n => noteOn(a.ch, n, feelVel(a.vel, a.perf)));
@@ -589,6 +605,15 @@ function stopHeld() {
     st.dirty = true;
 }
 
+/* Register keeps chords played from the pads near one pitch while smooth voice leading wanders. */
+function renderInRegister(m) {
+    const c = renderChord(m);
+    if (!cfg.register) return c;
+    const mean = c.notes.reduce((a, n) => a + n, 0) / c.notes.length;
+    const k = Math.round((REGISTER_CENTRE[cfg.register] + 12 * st.oct - mean) / 12);
+    return k ? renderChord({ ...m, oct: m.oct + k }) : c;
+}
+
 function playChordPad(i, vel) {
     if (st.latched && i === st.rootPad) { stopHeld(); return; }
     if (i !== st.rootPad) st.stuckTypes = [];
@@ -597,7 +622,7 @@ function playChordPad(i, vel) {
     const t = heldTypeValues();
     const m = { pc: p.pc, baseQ: p.q, q: t.q || p.q, ext: t.ext, oct: st.oct, voicing: st.voicing, open: false, bassDeg: 0 };
     if (cfg.smooth && st.prev) m.voicing = smoothVoicing(m, st.prev);
-    const c = renderChord(m);
+    const c = renderInRegister(m);
     st.last = { ...c, vel: Math.max(vel, MIN_SAVED_VEL) };
     soundChord(i, c, vel);
 }
@@ -648,7 +673,7 @@ function strike(i, vel) {
     const shape = strikeShape(i & 7);
     const m = { pc: st.sel.pc, baseQ: st.sel.q, q: shape.q, ext: shape.ext, oct: st.oct, voicing: st.voicing, open: false, bassDeg: 0 };
     if (cfg.smooth && st.prev) m.voicing = smoothVoicing(m, st.prev);
-    const c = renderChord(m);
+    const c = renderInRegister(m);
     st.last = { ...c, vel: Math.max(vel, MIN_SAVED_VEL) };
     soundChord(i, c, vel);
 }
@@ -791,7 +816,7 @@ function stepSemitone(s, dir) {
 /* -/+ on a held step: a tap is a semitone, a long press an octave (fired from tick). */
 function plusMinusDown(dir) {
     if (st.heldStep >= 0 && st.mems[st.heldStep]) { st.plusMinus = { dir, at: Date.now(), fired: false, step: st.heldStep }; return; }
-    if (st.shift) shiftRows(dir); else octave(dir);
+    octave(dir);
 }
 
 function plusMinusUp() {
@@ -1432,21 +1457,18 @@ function cycle(options, cur, dir) {
 }
 
 /*
- * Knobs play on their own; with Shift they set Bloom's key and scale (1, 2) and routing (5 to 8).
- * Holding Menu shows what the eight knobs do (with Shift, the Shift layer). Holding a step
- * points them at that step instead.
+ * Knobs shape how chords play, the same with or without a step held (holding one points them at
+ * that step). With Shift they set how the pads behave and add to the sound. Holding Menu shows
+ * what the eight knobs do; tapping it opens Settings, for what is set once per Set.
  */
-const SHIFT_KNOB_NAMES = ['KEY', 'SCALE', '', '', 'CHORD TRACK', 'BASS TRACK', 'MIDI OUT', 'PAD COLOURS'];
+const SHIFT_KNOB_NAMES = ['KEY', 'SCALE', 'CHORD ROWS', 'SOUND', 'STRUM DIRECTION', 'SWING', 'REGISTER', ''];
 const SCALE_CHOICES = ['MAJOR', 'MINOR', 'DORIAN', 'MIXOLYDIAN', 'LYDIAN', 'PHRYGIAN', 'LOCRIAN', 'HARMONIC MINOR', 'MELODIC MINOR', 'HARMONIC MAJOR'];
 
 const freeKnob = k => st.shift && !SHIFT_KNOB_NAMES[k];
+const gateLabel = g => Math.round(g * 100) + '%';
+const swingLabel = () => (cfg.swing ? SWINGS[cfg.swing] + '%' : 'OFF');
 
-function knobTitle(k) {
-    if (!st.shift) return KNOB_NAMES[k];
-    if (k === 4) return 'CHORD TRACK: ' + routeNote(cfg.chordCh);
-    if (k === 5) return bassOnChords() ? 'BASS TRACK' : 'BASS TRACK: ' + routeNote(cfg.bassCh);
-    return SHIFT_KNOB_NAMES[k];
-}
+function knobTitle(k) { return st.shift ? SHIFT_KNOB_NAMES[k] : KNOB_NAMES[k]; }
 
 function knobValue(k) {
     if (st.shift) return shiftValue(k);
@@ -1455,7 +1477,7 @@ function knobValue(k) {
         case 0: return MODES[cfg.mode];
         case 1: return beatsLabel(memBeats(null));
         case 2: return isArpMode() ? RATES[cfg.rate][0] + ' @ ' + Math.round(st.tempo) : cfg.strumMs + ' MS';
-        case 3: return SOUNDS[cfg.sound];
+        case 3: return gateLabel(cfg.gate);
         case 4: return cfg.vol + '%';
         case 5: return !cfg.bass ? 'OFF' : 'ON: ' + bassTrackLabel();
         case 6: return spreadLabel(g);
@@ -1468,10 +1490,11 @@ function shiftValue(k) {
     switch (k) {
         case 0: return NAMES[st.keyRoot] + (st.keyOwn ? ' (BLOOM)' : ' (SET)');
         case 1: return st.scaleName + (st.keyOwn ? ' (BLOOM)' : ' (SET)');
-        case 4: return trackLabel(cfg.chordCh);
-        case 5: return bassTrackLabel();
-        case 6: return OUTS[cfg.out];
-        case 7: return THEMES[cfg.theme].name;
+        case 2: return 'START ON ' + NAMES[pcOf(padInfo(0, 0).pc)] + (st.turn ? '' : ' (KEY)');
+        case 3: return SOUNDS[cfg.sound];
+        case 4: return STRUM_DIRS[cfg.strumDir];
+        case 5: return swingLabel();
+        case 6: return REGISTERS[cfg.register];
     }
     return '';
 }
@@ -1482,25 +1505,25 @@ function knobMap() {
         const scale = st.scaleName.replace('HARMONIC', 'HARM').replace('MELODIC', 'MEL');
         return [
             ['KEY ' + NAMES[st.keyRoot], st.keyOwn], [scale.slice(0, 10), st.keyOwn],
-            ['-', false], ['-', false],
-            ['CHORD T' + (cfg.chordCh + 1), false], [bassOnChords() ? 'BASS ON T' + (cfg.chordCh + 1) : 'BASS T' + (cfg.bassCh + 1), false],
-            ['OUT ' + ['MOVE', 'M+USB', 'USB'][cfg.out], cfg.out !== OUT_MOVE], [THEMES[cfg.theme].name, false]
+            ['ROWS ' + NAMES[pcOf(padInfo(0, 0).pc)], st.turn !== 0], [SOUNDS[cfg.sound], cfg.sound !== S_ON],
+            ['STRUM ' + ['UP', 'DOWN', 'ALT'][cfg.strumDir], cfg.strumDir !== 0], ['SWING ' + swingLabel(), cfg.swing !== 0],
+            ['REG ' + REGISTERS[cfg.register], cfg.register !== 0], ['-', false]
         ];
     }
     const g = perfFor(null);
     return [
         [SHORT_MODES[cfg.mode], false], [beatsLabel(memBeats(null)), false],
-        ['SPD ' + speedLabel(g), false], [SOUNDS[cfg.sound], cfg.sound !== 0],
-        ['VOL ' + cfg.vol + '%', false], ['BASS ' + (cfg.bass ? 'ON' : 'OFF'), false],
-        [spreadLabel(g), false], ['FEEL ' + cfg.feel, false]
+        ['SPD ' + speedLabel(g), false], ['GATE ' + gateLabel(cfg.gate), cfg.gate !== 1],
+        ['VOL ' + cfg.vol + '%', cfg.vol !== 100], ['BASS ' + (cfg.bass ? 'ON' : 'OFF'), false],
+        [spreadLabel(g), false], ['FEEL ' + cfg.feel, cfg.feel !== 0]
     ];
 }
 
 function knob(k, delta) {
+    if (st.menu) st.menu.used = true;
     if (st.heldStep >= 0 && st.mems[st.heldStep]) { stepKnob(st.heldStep, k, delta); return; }
     if (freeKnob(k)) return;
-    if (st.shift && k >= 4) routingKnob(k - 4, delta);
-    else if (st.shift) keyKnob(k, delta);
+    if (st.shift) shiftKnob(k, delta);
     else playKnob(k, delta);
 }
 
@@ -1514,13 +1537,24 @@ function setKey(root, scaleName) {
     st.dirty = true;
 }
 
-function keyKnob(k, delta) {
+function shiftKnob(k, delta) {
     const dir = knobSteps(8 + k, delta, 4);
-    if (dir && k === 0) setKey(pcOf(st.keyRoot + dir), st.scaleName);
-    else if (dir) {
+    if (!dir) { toast(knobTitle(k), knobValue(k)); return; }
+    if (k === 0) setKey(pcOf(st.keyRoot + dir), st.scaleName);
+    else if (k === 1) {
         const list = SCALE_CHOICES.includes(st.scaleName) ? SCALE_CHOICES : [st.scaleName, ...SCALE_CHOICES];
         setKey(st.keyRoot, cycle(list, st.scaleName, dir));
     }
+    else if (k === 2) { shiftRows(dir); return; }
+    else if (k === 3) {
+        cfg.sound = clamp(cfg.sound + dir, 0, SOUNDS.length - 1);
+        if (cfg.sound !== S_HOLD && st.latched) stopHeld();
+        else if (st.rootDown) replayHeld();
+    }
+    else if (k === 4) cfg.strumDir = clamp(cfg.strumDir + dir, 0, STRUM_DIRS.length - 1);
+    else if (k === 5) cfg.swing = clamp(cfg.swing + dir, 0, SWINGS.length - 1);
+    else if (k === 6) { cfg.register = clamp(cfg.register + dir, 0, REGISTERS.length - 1); replayHeld(); }
+    cfg.dirtyAt = Date.now();
     toast(knobTitle(k), knobValue(k));
 }
 
@@ -1545,31 +1579,53 @@ function togglePlayStyle() {
     st.armNotes = [];
     st.heldTypes = [];
     st.stuckTypes = [];
-    toast('PLAY STYLE', cfg.strike ? 'PICK, THEN STRIKE' : 'TOUCH AND PLAY');
 }
 
-function routingKnob(i, delta) {
-    const dir = knobSteps(16 + i, delta, 4);
-    if (i === 3) {
-        if (dir) { cfg.theme = clamp(cfg.theme + dir, 0, THEMES.length - 1); applyTheme(); cfg.dirtyAt = Date.now(); }
-        toast('PAD COLOURS', THEMES[cfg.theme].name);
-        return;
+/* ---------- Settings: what is set once per Set, in a list Menu opens ---------- */
+
+const SETTINGS = ['CHORDS ON', 'BASS ON', 'MIDI OUT', 'PAD COLOURS', 'PLAY STYLE'];
+
+function settingValue(i) {
+    switch (i) {
+        case 0: return 'T' + (cfg.chordCh + 1);
+        case 1: return bassOnChords() ? 'CHORD TRACK' : 'T' + (cfg.bassCh + 1);
+        case 2: return OUTS[cfg.out];
+        case 3: return THEMES[cfg.theme].name;
+        case 4: return cfg.strike ? 'PICK' : 'TOUCH';
     }
+    return '';
+}
+
+function toggleSettings() {
+    st.settings = st.settings ? null : { i: 0, edit: false };
+    st.dirty = true;
+}
+
+/* The wheel moves through the list; a click picks a setting, and then the wheel changes it. */
+function settingsWheel(dir) {
+    const s = st.settings;
+    if (s.edit) changeSetting(s.i, dir);
+    else s.i = clamp(s.i + dir, 0, SETTINGS.length - 1);
+    st.dirty = true;
+}
+
+function changeSetting(i, dir) {
+    if (i === 4) { if (cfg.strike !== dir > 0) togglePlayStyle(); return; }
+    if (i === 3) { cfg.theme = clamp(cfg.theme + dir, 0, THEMES.length - 1); applyTheme(); }
     if (i === 2) {
-        if (dir) { allNotesOff(); cfg.out = clamp(cfg.out + dir, 0, OUTS.length - 1); cfg.dirtyAt = Date.now(); }
-        if (cfg.out === OUT_MOVE) toast('MIDI OUT', 'MOVE');
-        else showCard('MIDI OUT: ' + OUTS[cfg.out], ['Gear on the USB-A port:', 'chords on channel 1,', 'bass on channel 2.', 'Record still goes', 'to Move tracks.']);
-        return;
+        const was = cfg.out;
+        allNotesOff();
+        cfg.out = clamp(cfg.out + dir, 0, OUTS.length - 1);
+        if (cfg.out !== was && cfg.out !== OUT_MOVE) showCard('MIDI OUT: ' + OUTS[cfg.out], ['Gear on the USB-A port:', 'chords on channel 1,', 'bass on channel 2.', 'Record still goes', 'to Move tracks.']);
     }
-    if (i > 3) return;
-    if (dir && i === 0) { allNotesOff(); cfg.chordCh = (cfg.chordCh + dir + 4) % 4; requestSelect(); }
-    if (dir && i === 1) {
+    if (i === 0) { allNotesOff(); cfg.chordCh = (cfg.chordCh + dir + 4) % 4; requestSelect(); }
+    if (i === 1) {
         allNotesOff();
         cfg.bassCh = cycle([-1, 0, 1, 2, 3].filter(t => t !== cfg.chordCh), bassOnChords() ? -1 : cfg.bassCh, dir);
-        if (cfg.bass && bassRoute().needsSetup) { cfg.dirtyAt = Date.now(); showBassSetup(); return; }
+        if (cfg.bass && bassRoute().needsSetup) showBassSetup();
     }
     cfg.dirtyAt = Date.now();
-    toast(knobTitle(i + 4), [trackLabel(cfg.chordCh), bassTrackLabel()][i]);
+    st.dirty = true;
 }
 
 /* A running arp on a pad chord follows the global knobs (a step's arp keeps its own settings). */
@@ -1595,11 +1651,7 @@ function playKnob(k, delta) {
         }
         else if (k === 1) cfg.beats = cycle(STEP_BEATS, memBeats(null), dir);
         else if (k === 2) { cfg.rate = clamp(cfg.rate + dir, 0, RATES.length - 1); refreshArp(); }
-        else if (k === 3) {
-            cfg.sound = clamp(cfg.sound + dir, 0, SOUNDS.length - 1);
-            if (cfg.sound !== S_HOLD && st.latched) stopHeld();
-            else if (st.rootDown) replayHeld();
-        }
+        else if (k === 3) cfg.gate = cycle(GATES, cfg.gate, dir);
         else if (k === 5) {
             cfg.bass = !cfg.bass;
             if (!cfg.bass) allNotesOff();
@@ -1634,13 +1686,12 @@ function stepKnob(s, k, delta) {
     else if (k === 1) next.beats = cycle([null, ...STEP_BEATS], own('beats'), dir);
     else if (k === 2 && isArpMode(perf)) next.rate = cycle([null, 0, 1, 2, 3], own('rate'), dir);
     else if (k === 2) next.strumMs = cycle(STRUM_MS, own('strumMs'), dir);
-    else if (k === 3) next.gate = cycle(GATES, perf.gate, dir);
+    else if (k === 3) next.gate = cycle([null, ...GATES], own('gate'), dir);
     else if (k === 4) next.vol = cycle(STEP_VOLS, own('vol') ?? 100, dir);
     else if (k === 5) next.bassOn = cycle([null, true, false], own('bassOn'), dir);
     else if (k === 6) next.spread = cycle([null, 0, 1, 2], own('spread'), dir);
     else if (k === 7) next.feel = cycle([null, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], own('feel'), dir);
-    for (const key of ['mode', 'beats', 'rate', 'strumMs', 'bassOn', 'spread', 'feel']) if (next[key] === null) delete next[key];
-    if (next.gate === 1) delete next.gate;
+    for (const key of ['mode', 'beats', 'rate', 'strumMs', 'gate', 'bassOn', 'spread', 'feel']) if (next[key] === null) delete next[key];
     if (next.vol === 100) delete next.vol;
     editMems(() => { st.mems[s] = next; });
     soundChord(32 + s, next, memVel(next), perfFor(next));
@@ -1773,7 +1824,7 @@ function updateLeds() {
     if (sent < LEDS_PER_TICK) sent += buttonLed(CC_PLAY, st.player && !st.player.waiting ? COL.held : COL.off);
     for (let t = 0; t < 4 && sent < LEDS_PER_TICK; t++)
         sent += buttonLed(CC_TRACK1 - t, t === st.trackHeld ? COL.white : t === cfg.chordCh ? COL.maj : cfg.bass && !bassOnChords() && t === cfg.bassCh ? COL.min : COL.off);
-    if (sent < LEDS_PER_TICK) sent += buttonLed(CC_MENU, st.menuHeld ? COL.white : COL.off);
+    if (sent < LEDS_PER_TICK) sent += buttonLed(CC_MENU, st.settings || (st.menu && st.menu.shown) ? COL.white : COL.off);
     if (sent < LEDS_PER_TICK) sent += buttonLed(CC_REC, st.bounce || st.liveTake ? COL.rec : COL.off);
 }
 
@@ -1826,7 +1877,21 @@ function drawKnobMap() {
         if (own) { fill_rect(x, y - 1, text_width(text) + 3, 10, 1); print(x + 1, y, text, 0); }
         else print(x + 1, y, text, 1);
     });
-    print(0, 55, st.shift ? 'KEY AND ROUTING' : 'SHIFT: KEY, ROUTING', 1);
+    print(0, 55, st.shift ? 'TAP MENU: SETTINGS' : 'HOLD SHIFT: MORE', 1);
+}
+
+function drawSettings() {
+    const s = st.settings;
+    fill_rect(0, 0, 128, 11, 1);
+    print(2, 2, 'SETTINGS', 0);
+    SETTINGS.forEach((name, i) => {
+        const y = 13 + i * 10, value = settingValue(i);
+        const vx = 127 - text_width(value);
+        if (i === s.i && !s.edit) { fill_rect(0, y - 1, 128, 10, 1); print(1, y, name, 0); print(vx, y, value, 0); return; }
+        print(1, y, (i === s.i ? '>' : '') + name, 1);
+        if (i === s.i) { fill_rect(vx - 2, y - 1, 129 - vx, 10, 1); print(vx, y, value, 0); }
+        else print(vx, y, value, 1);
+    });
 }
 
 function liveLabel(l) {
@@ -1851,7 +1916,7 @@ function draw() {
     if (bigFont) set_font(DEFAULT_FONT);
 
     if (st.heldStep >= 0 && st.mems[st.heldStep]) { drawStep(st.heldStep); return; }
-    if (st.menuHeld) { drawKnobMap(); return; }
+    if (st.menu && st.menu.shown) { drawKnobMap(); return; }
     if (st.toast && Date.now() < st.toast.until) {
         fill_rect(0, 0, 128, 11, 1);
         print(2, 2, st.toast.title, 0);
@@ -1860,6 +1925,7 @@ function draw() {
         return;
     }
     st.toast = null;
+    if (st.settings) { drawSettings(); return; }
 
     const head = headline();
     const mode = cfg.sound === S_MUTED ? 'MUTED'
@@ -1915,6 +1981,7 @@ globalThis.tick = function () {
     flushOut();
     flushControls();
     tickPlusMinus();
+    if (st.menu && !st.menu.shown && Date.now() - st.menu.at >= MENU_HOLD_MS) { st.menu.shown = true; st.dirty = true; }
     if (st.ticks % CLOCK_READ_TICKS === 0) { readClock(); if (st.trackHeld >= 0) readMoveInfo(); }
     followTransport();
     tickBounce();
@@ -1948,7 +2015,7 @@ globalThis.onMidiMessageInternal = function (data) {
     if (st.bounce) {
         if (type === 0xb0 && d1 === CC_REC && d2 > 0) cancelBounce();
         if (type === 0xb0 && d1 === CC_SHIFT) st.shift = d2 > 0;
-        if (type === 0xb0 && d1 === CC_MENU) st.menuHeld = d2 > 0;
+        if (type === 0xb0 && d1 === CC_MENU && d2 === 0) st.menu = null;
         return;
     }
     if (type === 0x90 || type === 0x80) {
@@ -1976,8 +2043,9 @@ globalThis.onMidiMessageInternal = function (data) {
     else if (d1 === CC_MUTE) st.mute = press;
     else if (d1 >= CC_TRACK1 - 3 && d1 <= CC_TRACK1) { if (press) trackDown(CC_TRACK1 - d1); else trackUp(CC_TRACK1 - d1); }
     else if (d1 === CC_VOLUME && st.trackHeld >= 0) trackVolume();
-    else if (d1 === CC_LOOP && press && st.shift) togglePlayStyle();
-    else if (d1 === CC_MENU) { st.menuHeld = press; st.dirty = true; }
+    else if (d1 === CC_MENU && press) st.menu = { at: Date.now(), shown: false, used: false };
+    else if (d1 === CC_MENU) { if (st.menu && !st.menu.shown && !st.menu.used) toggleSettings(); st.menu = null; st.dirty = true; }
+    else if (d1 === CC_BACK && press && st.settings) toggleSettings();
     else if (d1 === CC_LOOP) { if (press) { st.loopHeld = true; st.loopPicks = []; st.dirty = true; } else if (st.loopHeld) loopReleased(); }
     else if (d1 === CC_PLAY && press && st.liveTake) stopLive();
     else if (d1 === CC_PLAY && press) playButton(st.shift);
@@ -1988,9 +2056,11 @@ globalThis.onMidiMessageInternal = function (data) {
     else if (d1 === CC_VOLUME && st.heldStep >= 0 && st.mems[st.heldStep]) stepKnob(st.heldStep, 4, decodeDelta(d2));
     else if (d1 === CC_JOG) {
         const d = decodeDelta(d2);
-        if (d) wheel(Math.sign(d));
+        if (d && st.settings && st.heldStep < 0) settingsWheel(Math.sign(d));
+        else if (d) wheel(Math.sign(d));
     } else if (d1 === CC_JOG_CLICK && press) {
         if (st.heldStep >= 0) plainStep(st.heldStep);
+        else if (st.settings) { st.settings.edit = !st.settings.edit; st.dirty = true; }
         else if (st.shift) toggleKeyLock();
         else toggleSmooth();
     } else if (d1 >= CC_KNOB1 && d1 <= CC_KNOB8) {

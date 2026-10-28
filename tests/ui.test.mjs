@@ -43,7 +43,7 @@ test('Capture writes a progression to steps 1-4', async () => {
 test('a held step takes its own gate and volume', async () => {
     bloom.step(0); await bloom.run(10);
     assert.equal(b.volumeOwned, 1, 'Volume knob kept from Move while a step is held');
-    bloom.turn(CC.KNOB1 + 3, -3);                              // gate 75%
+    bloom.turn(CC.KNOB1 + 3, 9);                               // gate: DEFAULT -> 25% -> 50% -> 75%
     bloom.turn(CC.KNOB1 + 4, -4);                              // volume 80%
     bloom.turn(CC.KNOB1 + 5, 6);                               // bass: DEFAULT -> ON -> OFF
     await bloom.run(10);

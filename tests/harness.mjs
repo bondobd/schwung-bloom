@@ -83,6 +83,12 @@ export async function loadBloom({ recArmsOnly = false, staleSelected = -1, echo 
         step: (s, on = true) => msg(on ? 0x90 : 0x80, 16 + s, on ? 100 : 0),
         button: (cc, on = true) => msg(0xb0, cc, on ? 127 : 0),
         turn: (cc, detents) => { for (let i = 0; i < Math.abs(detents); i++) msg(0xb0, cc, detents > 0 ? 1 : 127); },
+        /* Settings list: tap Menu, wheel to row i, click, wheel by dir, click, tap Menu to close. */
+        setting(i, dir) {
+            const tap = cc => { msg(0xb0, cc, 127); msg(0xb0, cc, 0); };
+            tap(CC.MENU); api.turn(CC.JOG, -8); api.turn(CC.JOG, i);
+            tap(CC.JOG_CLICK); api.turn(CC.JOG, dir); tap(CC.JOG_CLICK); tap(CC.MENU);
+        },
         padColor: (row, col) => b.leds.get(68 + row * 8 + col),
         hanging() {
             const on = new Map();
@@ -96,4 +102,4 @@ export async function loadBloom({ recArmsOnly = false, staleSelected = -1, echo 
     return api;
 }
 
-export const CC = { SHIFT: 49, DELETE: 119, UNDO: 56, LOOP: 58, CAPTURE: 52, PLAY: 85, REC: 86, LEFT: 62, RIGHT: 63, MINUS: 54, PLUS: 55, JOG: 14, KNOB1: 71 };
+export const CC = { SHIFT: 49, DELETE: 119, UNDO: 56, LOOP: 58, CAPTURE: 52, PLAY: 85, REC: 86, LEFT: 62, RIGHT: 63, MINUS: 54, PLUS: 55, JOG: 14, JOG_CLICK: 3, MENU: 50, BACK: 51, KNOB1: 71 };
