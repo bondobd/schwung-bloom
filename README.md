@@ -44,7 +44,8 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 |---|---|
 | Chord pad | Play the chord. In Hold, tap again to stop it |
 | Top row (held) | Colour the chord you play |
-| Top row (tapped while holding a chord) | The colour stays on that chord, for strumming; tap again to take it off. In Hold a new colour replaces the last one |
+| Top row (tapped while holding a chord) | The colour stays on that chord, for strumming; tap again to take it off |
+| Colours together | One of each kind combines: a sus, dim or aug, a 7th or 6th, and add9 (so 7 + sus4 is 7sus4, Maj7 + Add9 is maj9). A new one replaces the last of its kind |
 | Strum plate | Play the held (or last) chord's notes one by one |
 | Wheel | Invert the chord you're holding |
 | Wheel click | Smooth voice leading on or off |

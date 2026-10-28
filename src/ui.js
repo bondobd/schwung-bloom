@@ -518,13 +518,21 @@ function tickArp() {
 function padInfo(row, col) { return padChord(st.keyRoot, st.scale, st.turn, row, col); }
 const pcOf = n => ((n % 12) + 12) % 12;
 
-function activeTypes() { return st.stuckTypes.concat(st.heldTypes.filter(c => !st.stuckTypes.includes(c))); }
+/* Colours combine one per group: a quality (sus, dim, aug), a 7th or 6th, and add9. The newest wins its group. */
+const typeGroup = c => (TYPES[c][0] === 'q' ? 'q' : TYPES[c][1] === '9' ? '9' : '7');
+const withType = (cols, col) => cols.filter(c => typeGroup(c) !== typeGroup(col)).concat(col);
+
+function activeTypes() {
+    const last = {};
+    for (const c of st.stuckTypes.concat(st.heldTypes)) last[typeGroup(c)] = c;
+    return Object.values(last);
+}
 
 function heldTypeValues() {
     const types = activeTypes();
-    const qs = types.filter(c => TYPES[c][0] === 'q');
+    const q = types.find(c => TYPES[c][0] === 'q');
     return {
-        q: qs.length ? TYPES[qs[qs.length - 1]][1] : null,
+        q: q != null ? TYPES[q][1] : null,
         ext: types.filter(c => TYPES[c][0] === 'e').map(c => TYPES[c][1])
     };
 }
@@ -1261,9 +1269,7 @@ function padDown(i, vel) {
     if (row === 3) {
         /* Tapped while a chord is held (or ringing in Hold): the colour stays on it, tap again to take it off. */
         if (st.rootDown && st.rootPad < 16) {
-            /* In Hold one colour at a time: a new one replaces it. Otherwise they stack. */
-            const stack = cfg.sound === S_HOLD ? [] : st.stuckTypes;
-            st.stuckTypes = st.stuckTypes.includes(col) ? st.stuckTypes.filter(c => c !== col) : stack.concat(col);
+            st.stuckTypes = st.stuckTypes.includes(col) ? st.stuckTypes.filter(c => c !== col) : withType(st.stuckTypes, col);
         } else st.heldTypes = st.heldTypes.filter(c => c !== col).concat(col);
         replayHeld();
         return;

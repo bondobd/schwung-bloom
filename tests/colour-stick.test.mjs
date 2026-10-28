@@ -24,10 +24,9 @@ test('a colour tapped while holding a chord stays on it for strumming', async ()
     assert.deepEqual(await strumPlate(), [0, 4, 7, 11], 'the strum plate plays Cmaj7');
 });
 
-test('colours stack, and tapping one again takes it off', async () => {
+test('a new 7th replaces the last, and tapping one again takes it off', async () => {
     bloom.pad(3, SEVEN); bloom.pad(3, SEVEN, false); await bloom.run(30);
-    assert.match(bloom.text(), /C7|Cmaj7/);
-    bloom.pad(3, MAJ7); bloom.pad(3, MAJ7, false); await bloom.run(30);
+    assert.match(bloom.text(), /C7/);
     bloom.pad(3, SEVEN); bloom.pad(3, SEVEN, false); await bloom.run(30);
     bloom.pad(3, ADD9); bloom.pad(3, ADD9, false); await bloom.run(30);
     assert.match(bloom.text(), /Cadd9/);
@@ -83,4 +82,23 @@ test('in Hold a tapped colour replaces the last one instead of stacking', async 
     assert.deepEqual(notes(), [0, 4, 7, 11], 'Cmaj7, not C7 + Maj7');
     hold.pad(3, MAJ7); hold.pad(3, MAJ7, false); await hold.run(40);
     assert.deepEqual(notes(), [0, 4, 7], 'tapping it again goes back to plain C');
+});
+
+test('colours combine one per group: a new 7th replaces the last, add9 and sus layer on', async () => {
+    const g = await loadBloom({ settings: { mode: 0, bass: false, sound: 0 } });
+    const notes = () => { const on = new Map(); for (const m of g.b.midi) on.set(m.note, m.on); return [...on].filter(([, v]) => v).map(([n]) => n % 12).sort((x, y) => x - y); };
+    const tap = async col => { g.pad(3, col); g.pad(3, col, false); await g.run(40); };
+    g.pad(0, 0); await g.run(40);
+    await tap(SEVEN); await tap(MAJ7); await tap(6);
+    assert.deepEqual(notes(), [0, 4, 7, 9], 'C6, not C7 + Maj7 + 6');
+    await tap(SEVEN); await tap(ADD9);
+    assert.deepEqual(notes(), [0, 2, 4, 7, 10], 'C9');
+    await tap(1);
+    assert.deepEqual(notes(), [0, 2, 5, 7, 10], '9sus4');
+    g.pad(0, 0, false); await g.run(200);
+
+    g.pad(3, SEVEN); g.pad(3, MAJ7); await g.run(20);
+    g.pad(0, 0); await g.run(40);
+    assert.deepEqual(notes(), [0, 4, 7, 11], 'two 7th pads held at once: the newer one, Cmaj7');
+    g.pad(0, 0, false); g.pad(3, SEVEN, false); g.pad(3, MAJ7, false); await g.run(200);
 });
