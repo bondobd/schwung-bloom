@@ -138,6 +138,11 @@
         {
             "title": "Knobs",
             "lines": [
+                "Menu: next page of",
+                "knobs. Shift+Menu:",
+                "back. Back: PLAY.",
+                "",
+                "PLAY page:",
                 "1 Play mode",
                 "2 Step length",
                 "3 Strum speed or",
@@ -149,10 +154,27 @@
                 "7 Spread",
                 "8 Feel",
                 "",
-                "Shift+5 chord track",
-                "Shift+6 bass track",
-                "Shift+7 MIDI out",
-                "Shift+8 pad colours"
+                "",
+                "HARMONY page:",
+                "1 Key  2 Scale",
+                "3 Chord rows",
+                "4 Octave",
+                "5 Inversion",
+                "6 Voice leading",
+                "7 Out-of-key chords",
+                "8 Play style",
+                "Key and scale are",
+                "Bloom's own (* on",
+                "screen) until the",
+                "Set's key changes.",
+                "",
+                "ROUTING page:",
+                "1 Chord track",
+                "2 Bass track",
+                "3 MIDI out",
+                "4 Pad colours",
+                "Also Shift+5 to 8",
+                "from any page."
             ]
         },
         {

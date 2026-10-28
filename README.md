@@ -47,7 +47,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | Top row (tapped while holding a chord) | The colour stays on that chord, for strumming; tap again to take it off. In Hold a new colour replaces the last one |
 | Strum plate | Play the held (or last) chord's notes one by one |
 | Wheel | Invert the chord you're holding |
-| Wheel click | Smooth voice leading on or off |
+| Wheel click | Smooth voice leading on or off (also HARMONY knob 6) |
 | Shift + wheel click | Out-of-key chords playable or hidden |
 | - / + | Octave. Shift: move the chord rows a semitone |
 | Shift + Loop | Touch and play, or pick then strike |
@@ -90,7 +90,15 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 | - / + | Transpose a semitone. Long press: an octave |
 | Volume knob | Volume |
 
-**Knobs** (touch one to see it): 1 play mode, 2 step length, 3 strum speed or arp rate, 4 sound (on, muted, hold), 5 volume, 6 bass, 7 spread, 8 feel. Shift + 5 chord track, Shift + 6 bass track, Shift + 7 MIDI out, Shift + 8 pad colours (Ocean, Moonlight, Sunset, Classic).
+**Knobs** come in pages. Touch a knob to see it; **Menu** turns to the next page (Shift + Menu goes back) and **Back** returns to PLAY. Off the PLAY page the screen shows the page's eight values, highlighting the ones that differ from the usual.
+
+| Page | Knobs 1 to 8 |
+|---|---|
+| PLAY | Play mode, step length, strum speed or arp rate, sound (on, muted, hold), volume, bass, spread, feel |
+| HARMONY | Key, scale, chord rows, octave, inversion, voice leading, out-of-key chords, play style |
+| ROUTING | Chord track, bass track, MIDI out, pad colours (Ocean, Moonlight, Sunset, Classic). Shift + knobs 5 to 8 reach these from any page |
+
+**Key and scale in Bloom.** HARMONY knobs 1 and 2 set a key for Bloom alone, so you can try keys without leaving it; the key shows a `*` while it differs from the Set's. It lasts until the Set's key changes on Move, and Move's own pads and scale stay as they are (Schwung can read Move's key but not set it).
 
 ## Install
 

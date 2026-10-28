@@ -50,6 +50,7 @@ import {
 
 const PAD0 = 68, STEP0 = 16;
 const CC_JOG = 14, CC_JOG_CLICK = 3, CC_KNOB1 = 71, CC_KNOB8 = 78;
+const CC_MENU = 50, CC_BACK = 51;
 const CC_SHIFT = 49, CC_DELETE = 119, CC_UNDO = 56, CC_LOOP = 58, CC_CAPTURE = 52;
 const CC_DOWN = 54, CC_UP = 55, CC_LEFT = 62, CC_RIGHT = 63, CC_PLAY = 85, CC_REC = 86, CC_VOLUME = 79, CC_MUTE = 88;
 const OUT_PER_TICK = 6;
@@ -145,7 +146,9 @@ const st = {
     mems: new Array(16).fill(null), undo: [], memsAt: 0, setId: '',
     takes: [], stepTakes: [],   // earlier versions, for turning the wheel back
     toast: null,                // {title, value, until}
-    knobAcc: [0, 0, 0, 0, 0, 0, 0, 0],
+    knobAcc: new Array(24).fill(0),   // detents towards the next value, per page knob
+    page: 0,                    // knob page, see PAGES
+    moveRoot: -1, moveScaleName: '', keyOwn: false,  // the Set's key, and whether Bloom overrides it
     inModes: [], selTrack: -1,  // per track: 'auto' | 'none' | channel 0-15, from the Set file
     controlQueue: [], controlAt: 0, echoes: [],
     out: [], live: new Set(), recheck: [],  // paced MIDI out, notes Move is sounding, note-offs to repeat
@@ -1359,7 +1362,7 @@ function trackUp(t) {
 
 const signed = n => (n > 0 ? '+' : '') + n;
 
-function keyLabel() { return NAMES[st.keyRoot] + ' ' + st.scaleName; }
+function keyLabel() { return NAMES[st.keyRoot] + ' ' + st.scaleName + (st.keyOwn ? '*' : ''); }
 
 function trackLabel(ch) {
     const t = st.tracks[ch];
@@ -1392,36 +1395,9 @@ function speedLabel(perf) {
 
 function spreadLabel(perf) { return isArpMode(perf) ? (perf.spread + 1) + ' OCT' : SPREADS[perf.spread]; }
 
-function knobValue(k) {
-    if (st.shift && k === 7) return THEMES[cfg.theme].name;
-    if (st.shift && k === 6) return OUTS[cfg.out];
-    if (st.shift && k === 4) return trackLabel(cfg.chordCh);
-    if (st.shift && k === 5) return bassTrackLabel();
-    const g = perfFor(null);
-    switch (k) {
-        case 0: return MODES[cfg.mode];
-        case 1: return beatsLabel(memBeats(null));
-        case 2: return isArpMode() ? RATES[cfg.rate][0] + ' @ ' + Math.round(st.tempo) : cfg.strumMs + ' MS';
-        case 3: return SOUNDS[cfg.sound];
-        case 4: return cfg.vol + '%';
-        case 5: return !cfg.bass ? 'OFF' : 'ON: ' + bassTrackLabel();
-        case 6: return spreadLabel(g);
-        case 7: return cfg.feel ? 'LOOSE ' + cfg.feel : 'STEADY';
-    }
-    return '';
-}
-
 function routeNote(track) {
     const r = route(track);
     return r.off ? 'MIDI IN OFF' : r.auto ? 'AUTO' : 'CH ' + (r.ch + 1);
-}
-
-function knobTitle(k) {
-    if (st.shift && k === 7) return 'PAD COLOURS';
-    if (st.shift && k === 6) return 'MIDI OUT';
-    if (st.shift && k === 4) return 'CHORD TRACK: ' + routeNote(cfg.chordCh);
-    if (st.shift && k === 5) return bassOnChords() ? 'BASS TRACK' : 'BASS TRACK: ' + routeNote(cfg.bassCh);
-    return KNOB_NAMES[k];
 }
 
 /* A longer message than a toast: a title and up to five lines, for a few seconds. */
@@ -1452,36 +1428,174 @@ function cycle(options, cur, dir) {
     return options[clamp(i + dir, 0, options.length - 1)];
 }
 
+/*
+ * Knob pages. Menu flips through them (Shift + Menu goes back, Back returns to PLAY), so a new
+ * option is a knob on a page rather than another button combination. Holding a step still
+ * points the knobs at that step, and Shift + knobs 5 to 8 still reach ROUTING from any page.
+ */
+const PAGES = ['PLAY', 'HARMONY', 'ROUTING'];
+const P_PLAY = 0, P_HARMONY = 1, P_ROUTING = 2;
+const HARMONY_NAMES = ['KEY', 'SCALE', 'CHORD ROWS', 'OCTAVE', 'INVERSION', 'VOICE LEADING', 'OUT-OF-KEY CHORDS', 'PLAY STYLE'];
+const SCALE_CHOICES = ['MAJOR', 'MINOR', 'DORIAN', 'MIXOLYDIAN', 'LYDIAN', 'PHRYGIAN', 'LOCRIAN', 'HARMONIC MINOR', 'MELODIC MINOR', 'HARMONIC MAJOR'];
+
+function pageKnob(k) { return st.shift && k >= 4 ? [P_ROUTING, k - 4] : [st.page, k]; }
+
+function knobTitle(k) {
+    const [page, i] = pageKnob(k);
+    if (page === P_HARMONY) return HARMONY_NAMES[i];
+    if (page === P_ROUTING) {
+        if (i === 0) return 'CHORD TRACK: ' + routeNote(cfg.chordCh);
+        if (i === 1) return bassOnChords() ? 'BASS TRACK' : 'BASS TRACK: ' + routeNote(cfg.bassCh);
+        return ['', '', 'MIDI OUT', 'PAD COLOURS'][i] || 'ROUTING';
+    }
+    return KNOB_NAMES[i];
+}
+
+function knobValue(k) {
+    const [page, i] = pageKnob(k);
+    if (page === P_HARMONY) return harmonyValue(i);
+    if (page === P_ROUTING) return [trackLabel(cfg.chordCh), bassTrackLabel(), OUTS[cfg.out], THEMES[cfg.theme].name][i] || '-';
+    const g = perfFor(null);
+    switch (i) {
+        case 0: return MODES[cfg.mode];
+        case 1: return beatsLabel(memBeats(null));
+        case 2: return isArpMode() ? RATES[cfg.rate][0] + ' @ ' + Math.round(st.tempo) : cfg.strumMs + ' MS';
+        case 3: return SOUNDS[cfg.sound];
+        case 4: return cfg.vol + '%';
+        case 5: return !cfg.bass ? 'OFF' : 'ON: ' + bassTrackLabel();
+        case 6: return spreadLabel(g);
+        case 7: return cfg.feel ? 'LOOSE ' + cfg.feel : 'STEADY';
+    }
+    return '';
+}
+
+function harmonyValue(i) {
+    switch (i) {
+        case 0: return NAMES[st.keyRoot] + (st.keyOwn ? ' (BLOOM)' : ' (SET)');
+        case 1: return st.scaleName + (st.keyOwn ? ' (BLOOM)' : ' (SET)');
+        case 2: return 'START ON ' + NAMES[pcOf(padInfo(0, 0).pc)] + (st.turn ? '' : ' (KEY)');
+        case 3: return signed(st.oct);
+        case 4: return signed(st.voicing);
+        case 5: return cfg.smooth ? 'SMOOTH' : 'OFF';
+        case 6: return cfg.keyLock ? 'HIDDEN' : 'PLAYABLE';
+        case 7: return cfg.strike ? 'PICK, THEN STRIKE' : 'TOUCH AND PLAY';
+    }
+    return '';
+}
+
+/* The eight values of a page, short enough for two columns; highlighted where Bloom overrides the Set. */
+function pageItems(page) {
+    if (page === P_HARMONY) {
+        const scale = st.scaleName.replace('HARMONIC', 'HARM').replace('MELODIC', 'MEL');
+        return [
+            ['KEY ' + NAMES[st.keyRoot], st.keyOwn], [scale.slice(0, 10), st.keyOwn],
+            ['ROWS ' + NAMES[pcOf(padInfo(0, 0).pc)], st.turn !== 0], ['OCT ' + signed(st.oct), st.oct !== 0],
+            ['INV ' + signed(st.voicing), st.voicing !== 0], ['LEAD ' + (cfg.smooth ? 'ON' : 'OFF'), false],
+            [cfg.keyLock ? 'IN KEY' : 'ALL CHORDS', !cfg.keyLock], [cfg.strike ? 'PICK' : 'TOUCH', cfg.strike]
+        ];
+    }
+    return [
+        ['CHORD T' + (cfg.chordCh + 1), false], [bassOnChords() ? 'BASS ON T' + (cfg.chordCh + 1) : 'BASS T' + (cfg.bassCh + 1), false],
+        ['OUT ' + ['MOVE', 'M+USB', 'USB'][cfg.out], cfg.out !== OUT_MOVE], [THEMES[cfg.theme].name, false],
+        ['', false], ['', false], ['', false], ['', false]
+    ];
+}
+
+function turnPage(dir) {
+    st.page = (st.page + dir + PAGES.length) % PAGES.length;
+    toast('KNOBS', PAGES[st.page]);
+}
+
 function knob(k, delta) {
     if (st.heldStep >= 0 && st.mems[st.heldStep]) { stepKnob(st.heldStep, k, delta); return; }
-    if (st.shift && k === 7) {
-        const dir = knobSteps(k, delta, 4);
+    const [page, i] = pageKnob(k);
+    if (page === P_HARMONY) harmonyKnob(i, delta);
+    else if (page === P_ROUTING) routingKnob(i, delta);
+    else playKnob(i, delta);
+}
+
+/* Bloom's own key: a root and scale that hold until the Set's key changes on Move. */
+function setKey(root, scaleName) {
+    st.keyRoot = root;
+    st.scaleName = scaleName;
+    st.scale = scaleFor(scaleName) || MAJOR;
+    st.turn = 0;
+    st.keyOwn = root !== st.moveRoot || scaleName !== st.moveScaleName;
+    st.dirty = true;
+}
+
+function harmonyKnob(i, delta) {
+    const dir = knobSteps(8 + i, delta, 4);
+    if (!dir) { toast(HARMONY_NAMES[i], harmonyValue(i)); return; }
+    if (i === 0) setKey(pcOf(st.keyRoot + dir), st.scaleName);
+    else if (i === 1) {
+        const list = SCALE_CHOICES.includes(st.scaleName) ? SCALE_CHOICES : [st.scaleName, ...SCALE_CHOICES];
+        setKey(st.keyRoot, cycle(list, st.scaleName, dir));
+    }
+    else if (i === 2) { shiftRows(dir); return; }
+    else if (i === 3) { octave(dir); return; }
+    else if (i === 4) { st.voicing = clamp(st.voicing + dir, -4, 6); replayHeld(); }
+    else if (i === 5) { toggleSmooth(); return; }
+    else if (i === 6) { toggleKeyLock(); return; }
+    else if (i === 7) { togglePlayStyle(); return; }
+    toast(HARMONY_NAMES[i], harmonyValue(i));
+}
+
+function toggleSmooth() {
+    cfg.smooth = !cfg.smooth;
+    cfg.dirtyAt = Date.now();
+    st.prev = null;
+    toast('VOICE LEADING', cfg.smooth ? 'SMOOTH' : 'OFF');
+}
+
+function toggleKeyLock() {
+    cfg.keyLock = !cfg.keyLock;
+    cfg.dirtyAt = Date.now();
+    toast('OUT-OF-KEY CHORDS', cfg.keyLock ? 'HIDDEN' : 'PLAYABLE');
+}
+
+function togglePlayStyle() {
+    cfg.strike = !cfg.strike;
+    cfg.dirtyAt = Date.now();
+    st.sel = null;
+    st.armNotes = [];
+    st.heldTypes = [];
+    st.stuckTypes = [];
+    toast('PLAY STYLE', cfg.strike ? 'PICK, THEN STRIKE' : 'TOUCH AND PLAY');
+}
+
+function routingKnob(i, delta) {
+    const dir = knobSteps(16 + i, delta, 4);
+    if (i === 3) {
         if (dir) { cfg.theme = clamp(cfg.theme + dir, 0, THEMES.length - 1); applyTheme(); cfg.dirtyAt = Date.now(); }
         toast('PAD COLOURS', THEMES[cfg.theme].name);
         return;
     }
-    if (st.shift && k === 6) {
-        const dir = knobSteps(k, delta, 4);
+    if (i === 2) {
         if (dir) { allNotesOff(); cfg.out = clamp(cfg.out + dir, 0, OUTS.length - 1); cfg.dirtyAt = Date.now(); }
         if (cfg.out === OUT_MOVE) toast('MIDI OUT', 'MOVE');
         else showCard('MIDI OUT: ' + OUTS[cfg.out], ['Gear on the USB-A port:', 'chords on channel 1,', 'bass on channel 2.', 'Record still goes', 'to Move tracks.']);
         return;
     }
-    if (st.shift && (k === 4 || k === 5)) {
-        const dir = knobSteps(k, delta, 4);
-        if (dir && k === 4) { allNotesOff(); cfg.chordCh = (cfg.chordCh + dir + 4) % 4; requestSelect(); }
-        if (dir && k === 5) {
-            allNotesOff();
-            cfg.bassCh = cycle([-1, 0, 1, 2, 3].filter(t => t !== cfg.chordCh), bassOnChords() ? -1 : cfg.bassCh, dir);
-            if (cfg.bass && bassRoute().needsSetup) { cfg.dirtyAt = Date.now(); showBassSetup(); return; }
-        }
-    } else if (k === 2 && !isArpMode()) {
+    if (i > 3) return;
+    if (dir && i === 0) { allNotesOff(); cfg.chordCh = (cfg.chordCh + dir + 4) % 4; requestSelect(); }
+    if (dir && i === 1) {
+        allNotesOff();
+        cfg.bassCh = cycle([-1, 0, 1, 2, 3].filter(t => t !== cfg.chordCh), bassOnChords() ? -1 : cfg.bassCh, dir);
+        if (cfg.bass && bassRoute().needsSetup) { cfg.dirtyAt = Date.now(); showBassSetup(); return; }
+    }
+    cfg.dirtyAt = Date.now();
+    toast(knobTitle(i + 4 * (st.shift ? 1 : 0)), [trackLabel(cfg.chordCh), bassTrackLabel()][i]);
+}
+
+function playKnob(k, delta) {
+    if (k === 2 && !isArpMode()) {
         cfg.strumMs = clamp(cfg.strumMs + delta * 2, 5, 150);
     } else if (k === 4) {
         cfg.vol = clamp(cfg.vol + delta * 2, 0, 100);
     } else {
         const dir = knobSteps(k, delta, 4);
-        if (!dir) { toast(knobTitle(k), knobValue(k)); return; }
+        if (!dir) { toast(KNOB_NAMES[k], knobValue(k)); return; }
         if (k === 0) {
             const was = cfg.mode;
             cfg.mode = clamp(cfg.mode + dir, 0, MODES.length - 1);
@@ -1507,7 +1621,7 @@ function knob(k, delta) {
         else if (k === 7) cfg.feel = clamp(cfg.feel + dir, 0, 10);
     }
     cfg.dirtyAt = Date.now();
-    toast(knobTitle(k), knobValue(k));
+    toast(KNOB_NAMES[k], knobValue(k));
 }
 
 /*
@@ -1582,7 +1696,11 @@ function readMoveInfo() {
     const root = mi.rootNote >= 0 && mi.rootNote < 12 ? mi.rootNote : 0;
     const scale = scaleFor(mi.scale) || MAJOR;
     const scaleName = scaleFor(mi.scale) ? String(mi.scale).toUpperCase() : 'MAJOR';
-    if (root !== st.keyRoot || scaleName !== st.scaleName) {
+    /* A key picked in Bloom holds until the Set's key changes on Move; then the Set's is back. */
+    if (root !== st.moveRoot || scaleName !== st.moveScaleName) {
+        st.moveRoot = root; st.moveScaleName = scaleName; st.keyOwn = false;
+    }
+    if (!st.keyOwn && (root !== st.keyRoot || scaleName !== st.scaleName)) {
         st.keyRoot = root; st.scale = scale; st.scaleName = scaleName; st.turn = 0;
         st.dirty = true;
     }
@@ -1663,6 +1781,7 @@ function updateLeds() {
     if (sent < LEDS_PER_TICK) buttonLed(CC_PLAY, st.player && !st.player.waiting ? COL.held : COL.off);
     for (let t = 0; t < 4 && sent < LEDS_PER_TICK; t++)
         buttonLed(CC_TRACK1 - t, t === st.trackHeld ? COL.white : t === cfg.chordCh ? COL.maj : cfg.bass && !bassOnChords() && t === cfg.bassCh ? COL.min : COL.off);
+    if (sent < LEDS_PER_TICK) buttonLed(CC_MENU, st.page !== P_PLAY ? COL.white : COL.off);
     if (sent < LEDS_PER_TICK) buttonLed(CC_REC, st.bounce || st.liveTake ? COL.rec : COL.off);
 }
 
@@ -1705,6 +1824,17 @@ function drawStep(s) {
     print(0, 55, voicingLabel(m), 1);
 }
 
+function drawPage(page) {
+    fill_rect(0, 0, 128, 11, 1);
+    print(2, 2, PAGES[page] + '  ' + (page + 1) + '/' + PAGES.length, 0);
+    pageItems(page).forEach(([text, own], k) => {
+        const x = k % 2 ? 66 : 0, y = 13 + Math.floor(k / 2) * 10;
+        if (own && text) { fill_rect(x, y - 1, text_width(text) + 3, 10, 1); print(x + 1, y, text, 0); }
+        else print(x + 1, y, text, 1);
+    });
+    print(0, 55, st.name + '  MENU: NEXT', 1);
+}
+
 function headline() {
     const b = st.bounce;
     if (b) {
@@ -1730,6 +1860,7 @@ function draw() {
         return;
     }
     st.toast = null;
+    if (st.page !== P_PLAY) { drawPage(st.page); return; }
 
     const head = headline();
     const mode = cfg.sound === S_MUTED ? 'MUTED'
@@ -1824,7 +1955,7 @@ globalThis.onMidiMessageInternal = function (data) {
         const on = type === 0x90 && d2 > 0;
         if (d1 < 8) {
             if (!on || st.heldStep >= 0) return;
-            if (d1 === 5 && cfg.bass && bassRoute().needsSetup) showBassSetup();
+            if (d1 === 5 && st.page === P_PLAY && !st.shift && cfg.bass && bassRoute().needsSetup) showBassSetup();
             else toast(knobTitle(d1), knobValue(d1));
             return;
         }
@@ -1845,15 +1976,9 @@ globalThis.onMidiMessageInternal = function (data) {
     else if (d1 === CC_MUTE) st.mute = press;
     else if (d1 >= CC_TRACK1 - 3 && d1 <= CC_TRACK1) { if (press) trackDown(CC_TRACK1 - d1); else trackUp(CC_TRACK1 - d1); }
     else if (d1 === CC_VOLUME && st.trackHeld >= 0) trackVolume();
-    else if (d1 === CC_LOOP && press && st.shift) {
-        cfg.strike = !cfg.strike;
-        cfg.dirtyAt = Date.now();
-        st.sel = null;
-        st.armNotes = [];
-        st.heldTypes = [];
-        st.stuckTypes = [];
-        toast('PLAY STYLE', cfg.strike ? 'PICK, THEN STRIKE' : 'TOUCH AND PLAY');
-    }
+    else if (d1 === CC_LOOP && press && st.shift) togglePlayStyle();
+    else if (d1 === CC_MENU && press) turnPage(st.shift ? -1 : 1);
+    else if (d1 === CC_BACK && press && st.page !== P_PLAY) { st.page = P_PLAY; toast('KNOBS', 'PLAY'); }
     else if (d1 === CC_LOOP) { if (press) { st.loopHeld = true; st.loopPicks = []; st.dirty = true; } else if (st.loopHeld) loopReleased(); }
     else if (d1 === CC_PLAY && press && st.liveTake) stopLive();
     else if (d1 === CC_PLAY && press) playButton(st.shift);
@@ -1867,16 +1992,8 @@ globalThis.onMidiMessageInternal = function (data) {
         if (d) wheel(Math.sign(d));
     } else if (d1 === CC_JOG_CLICK && press) {
         if (st.heldStep >= 0) plainStep(st.heldStep);
-        else if (st.shift) {
-            cfg.keyLock = !cfg.keyLock;
-            cfg.dirtyAt = Date.now();
-            toast('OUT-OF-KEY CHORDS', cfg.keyLock ? 'HIDDEN' : 'PLAYABLE');
-        } else {
-            cfg.smooth = !cfg.smooth;
-            cfg.dirtyAt = Date.now();
-            st.prev = null;
-            toast('SMOOTH VOICING', cfg.smooth ? 'ON' : 'OFF');
-        }
+        else if (st.shift) toggleKeyLock();
+        else toggleSmooth();
     } else if (d1 >= CC_KNOB1 && d1 <= CC_KNOB8) {
         knob(d1 - CC_KNOB1, decodeDelta(d2));
     }
