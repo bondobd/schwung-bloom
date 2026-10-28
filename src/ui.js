@@ -126,7 +126,7 @@ const st = {
     menu: null,                 // {at, shown, used}: Menu held; the knob map shows after a moment
     settings: null,             // {i, edit}: the Settings list a tap on Menu opens
     strumDown: false,           // the last strum's direction, for ALTERNATE
-    moveRoot: -1, moveScaleName: '', keyOwn: false,  // the Set's key, and whether Bloom overrides it
+    moveRoot: -1, moveScaleName: '', keyOwn: false, moveValid: false,  // the Set's key, and whether Bloom overrides it
     inModes: [], selTrack: -1,  // per track: 'auto' | 'none' | channel 0-15, from the Set file
     controlQueue: [], controlAt: 0, echoes: [],
     out: [], live: new Set(), recheck: [],  // paced MIDI out, notes Move is sounding, note-offs to repeat
@@ -287,7 +287,7 @@ function bassRoute() {
 }
 
 function selectedTrack() {
-    const i = st.tracks.findIndex(t => t && t.selected);
+    const i = st.tracks.findIndex(t => t && t.selected === 1);
     return i >= 0 ? i : st.selTrack;
 }
 
@@ -303,8 +303,8 @@ function repaintIfDue() {
 }
 
 /*
- * Some Schwung builds (1.8 on Move 2.1.1) hand a button Bloom injects into Move straight back to
- * Bloom, which then took its own Play press for a second one. Each injected button is remembered
+ * Reported on Move 2.1.1 with Schwung 1.8 (not yet confirmed): a button Bloom injects into Move
+ * coming straight back to Bloom, which would take its own Play press for a second one. Each injected button is remembered
  * briefly and the first matching message back is dropped.
  */
 const ECHO_MS = 150;
@@ -334,7 +334,7 @@ function requestSelect() { st.select = { target: cfg.chordCh, tries: 0, at: 0 };
 
 function tickSelect() {
     const s = st.select;
-    if (st.bounce || st.liveTake || st.trackHeld >= 0 || st.mute || s.target < 0 || !chordRoute().auto) return;
+    if (st.bounce || st.liveTake || st.trackHeld >= 0 || st.mute || s.target < 0 || !chordRoute().auto || !st.moveValid) return;
     const now = Date.now();
     if (selectedTrack() === s.target || s.tries >= 3 || now < s.at) return;
     pressButton(CC_TRACK1 - s.target);
@@ -1040,13 +1040,16 @@ function startRangeOnBar(p) {
  * (beat 0 is bar 1); a Play-started run stops with Move; a preview carries on by itself.
  */
 /*
- * Schwung's copy of Move's state can get stuck: seen reading "playing" for minutes with Move
- * stopped, often right after Bloom opens. Bloom's clock reads -1 whenever Move is stopped, so the
+ * Schwung reads Move's transport only on firmware it knows (2.1.0); elsewhere, Move 2.1.1 among
+ * them, "playing" is 255 for unknown. Bloom's clock reads -1 whenever Move is stopped, so the
  * clock decides, except during the count-in after a Record press, when Move plays before its clock runs.
  */
+const MOVE_PLAYING = 1, MOVE_STOPPED = 0;
+
 function transportPlaying(mi) {
-    if (!mi.playing) return false;
-    if (!st.clock || clockBeat() >= 0) return true;
+    if (mi.playing === MOVE_STOPPED) return false;
+    if (!st.clock) return mi.playing === MOVE_PLAYING;
+    if (clockBeat() >= 0) return true;
     return Date.now() - st.recAt < 2 * st.beatsPerBar * beatMs() + 500;
 }
 
@@ -1740,7 +1743,9 @@ function shiftRows(dir) {
 function readMoveInfo() {
     if (typeof host_get_move_info !== 'function') return;
     const mi = host_get_move_info();
-    if (!mi || !mi.valid) return;
+    /* While Schwung is not reading Move, the last selection Bloom saw may no longer be true. */
+    st.moveValid = !!(mi && mi.valid);
+    if (!st.moveValid) { st.selTrack = -1; st.tracks = st.tracks.map(t => t && { ...t, selected: 255 }); return; }
     const root = mi.rootNote >= 0 && mi.rootNote < 12 ? mi.rootNote : 0;
     const scale = scaleFor(mi.scale) || MAJOR;
     const scaleName = scaleFor(mi.scale) ? String(mi.scale).toUpperCase() : 'MAJOR';
