@@ -84,7 +84,7 @@ Chords in the key are lit; the rest stay dark until you allow them (Shift + whee
 
 | While holding a step | Does |
 |---|---|
-| Knobs 1 to 8 | Play mode, length, speed, gate, volume, bass, spread, feel. Turn to the start for DEFAULT (follow the global knob) |
+| Knobs 1 to 8 | Play mode, length, speed, gate, volume, bass, spread, feel. Turn to the start for DEFAULT (follow the global knob); gate and volume default to 100%, at the end |
 | Wheel | A new take on the chord (left goes back) |
 | Wheel click | Back to a plain chord |
 | - / + | Transpose a semitone. Long press: an octave |

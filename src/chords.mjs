@@ -197,7 +197,7 @@ export function renderChord(m) {
 export function voicingLabel(m) {
     const size = new Set([...QUAL[m.q], ...(m.ext || []).map(e => EXT[e])]).size;
     const v = m.voicing || 0, inv = ((v % size) + size) % size, up = Math.floor(v / size);
-    const name = ['ROOT POS', '1ST INV', '2ND INV', '3RD INV', '4TH INV'][inv];
+    const name = inv === 0 ? 'ROOT POS' : (['1ST', '2ND', '3RD'][inv - 1] || inv + 'TH') + ' INV';
     return name + (m.open ? ' OPEN' : '') + (up > 0 ? ' HIGH' : up < 0 ? ' LOW' : '');
 }
 

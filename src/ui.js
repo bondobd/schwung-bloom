@@ -7,38 +7,7 @@
  * a fixed channel gets that channel; a track on Auto only hears MIDI while selected, so
  * Bloom selects the chord track by pressing its Track button for you.
  *
- * Pads, bottom row first (pad 68 is bottom-left):
- *   row 1  major chords on the key's scale, root to octave (C D E F G A B C in C major)
- *   row 2  minor chords on the same roots (diminished where the key has it)
- *   row 3  strum plate: tones of the held chord, low to high (the last chord once let go)
- *   row 4  Sus2 Sus4 Dim Aug | 7 Maj7 6 Add9   hold while playing a chord
- * Shift+Loop switches to pick-then-strike: a chord pad picks the chord silently and the top
- *   row plays it: Plain Sus2 Sus4 6 | 7 Maj7 Add9 9. Top-row pads that keep the chord in key
- *   are violet (Plain white); dim red ones add notes outside the key. The strum row stays on the
- *   last picked or struck chord, so you can let go and keep playing its notes.
- * Chords in the Set's key are lit; Shift+jog click toggles playing the others too.
- * Steps: chord memories, kept per Move Set. Shift+step saves the last chord, step plays it,
- *        Delete+step clears, Undo takes back the last change.
- * Capture: new 4-chord progression in the key (Shift+Capture: 8).
- * Play: starts Move and the progression (the Loop range) together, locked to Move's clock;
- *   again to stop. Shift+Play: the same with every step.
- * Loop: hold it and tap the first and last step to play only those; tap Loop alone for all steps.
- * Buttons follow Move's own conventions:
- *   -/+          octave (Shift: move the chord rows by a semitone)
- *   Left/Right   previous/next chord of the progression (jumps the player, or auditions it)
- *   hold a step  knobs set how it plays (first value DEFAULT follows the global knob),
- *                -/+ transposes it a semitone (long press: an octave), Volume sets its volume,
- *                the wheel or Left/Right gives a new take on the chord, wheel click makes it plain
- * Wheel with nothing held: a new take on every chord. While playing a chord pad, it inverts it.
- * Delete+chord pad: stop a held chord. Shift+Delete: all notes off. Shift+knob 8: pad colours.
- * Track buttons, as on Move: hold + Volume knob = track volume, Mute + track = mute,
- *   Delete + track = delete that track's playing clip, Shift+Undo = Move's Undo.
- * Record: records the steps onto the chord track, then the bass onto the bass track.
- * Knobs (touch one to see it on screen):
- *   1 play mode   2 step length  3 strum speed or arp rate  4 sound: on / muted / hold
- *   5 volume      6 bass on/off  7 spread                   8 feel (velocity spread)
- *   Shift+5 chord track, Shift+6 bass track.
- * Shift+Vol+Jog click exits.
+ * The controls are documented once, in README.md (and on the device in help.json).
  */
 
 import { setLED, setButtonLED, decodeDelta, isNoiseMessage, invalidateLedCache } from '/data/UserData/schwung/shared/input_filter.mjs';
@@ -73,7 +42,7 @@ const COL = {
 };
 
 /*
- * Pad colour themes (Shift+-/+). maj/min: in-key chord pads; majOut/minOut: out-of-key ones when
+ * Pad colour themes (ROUTING knob 4, or Shift+knob 8). maj/min: in-key chord pads; majOut/minOut: out-of-key ones when
  * playable; held: the sounding chord; strum: strum-plate tones; type/typeDim/typeIdle: top row
  * in key (held, available, nothing to modify); clash/dclash: top row taking the chord out of key.
  */
@@ -192,6 +161,13 @@ function loadState() {
     cfg.spread = clamp(cfg.spread, 0, SPREADS.length - 1);
     cfg.vol = clamp(cfg.vol, 0, 100);
     cfg.out = clamp(cfg.out, 0, OUTS.length - 1);
+    cfg.rate = clamp(cfg.rate, 0, RATES.length - 1);
+    cfg.chordCh = clamp(cfg.chordCh, 0, 3);
+    cfg.bassCh = clamp(cfg.bassCh, -1, 3);
+    cfg.feel = clamp(cfg.feel, 0, 10);
+    cfg.strumMs = clamp(cfg.strumMs, 5, 150);
+    cfg.theme = clamp(cfg.theme, 0, THEMES.length - 1);
+    if (cfg.beats && !STEP_BEATS.includes(cfg.beats)) cfg.beats = 0;
     loadMems();
 }
 
@@ -229,7 +205,7 @@ function repairMem(m) {
 function saveMems() { st.memsAt = 0; writeJson(STATE_DIR + '/set-' + st.setId + '.json', { mems: st.mems, range: st.range }); }
 
 function editMems(fn) {
-    st.undo.push(st.mems.slice());
+    st.undo.push({ mems: st.mems.slice(), range: st.range });
     if (st.undo.length > 30) st.undo.shift();
     fn();
     st.memsAt = Date.now();
@@ -321,7 +297,8 @@ function repaintIfDue() {
 const ECHO_MS = 150;
 
 function injectToMove(pkt) {
-    if ((pkt[1] & 0xf0) === 0xb0) st.echoes.push({ cc: pkt[2], val: pkt[3], at: Date.now() });
+    /* A button the user is holding (Delete or Mute in a combination) gets its release from them, not as an echo. */
+    if ((pkt[1] & 0xf0) === 0xb0 && !pkt.held) st.echoes.push({ cc: pkt[2], val: pkt[3], at: Date.now() });
     move_midi_inject_to_move(pkt);
 }
 
@@ -335,6 +312,8 @@ function isEcho(type, d1, d2) {
     return true;
 }
 
+function heldCC(cc, val) { return Object.assign([0x0b, 0xb0, cc, val], { held: true }); }
+
 function pressButton(cc) { st.controlQueue.push([0x0b, 0xb0, cc, 127], [0x0b, 0xb0, cc, 0]); }
 
 /* Press the chord track's Track button on Move when it is on Auto and not selected. */
@@ -342,7 +321,7 @@ function requestSelect() { st.select = { target: cfg.chordCh, tries: 0, at: 0 };
 
 function tickSelect() {
     const s = st.select;
-    if (st.bounce || st.liveTake || s.target < 0 || !chordRoute().auto) return;
+    if (st.bounce || st.liveTake || st.trackHeld >= 0 || st.mute || s.target < 0 || !chordRoute().auto) return;
     const now = Date.now();
     if (selectedTrack() === s.target || s.tries >= 3 || now < s.at) return;
     pressButton(CC_TRACK1 - s.target);
@@ -779,10 +758,10 @@ function generate(n) {
         prev = r.notes;
         return r;
     });
-    editMems(() => { for (let s = 0; s < 8; s++) st.mems[s] = mems[s] || null; });
+    editMems(() => { for (let s = 0; s < n; s++) st.mems[s] = mems[s] || null; });
     st.takes = []; st.stepTakes = [];
     stopHeld();
-    st.range = null;
+    st.range = { a: 0, b: n - 1 };
     startPreview();
     toast('NEW: ' + keyLabel(), mems.map(m => m.name).join(' '));
 }
@@ -848,7 +827,8 @@ function octave(dir) {
 
 function undo() {
     if (!st.undo.length) { toast('UNDO', 'NOTHING TO UNDO'); return; }
-    st.mems = st.undo.pop();
+    const back = st.undo.pop();
+    st.mems = back.mems; st.range = back.range;
     st.memsAt = Date.now();
     toast('UNDO', 'STEPS RESTORED');
 }
@@ -953,7 +933,7 @@ function jumpRun(r, dir) {
     while (k < order.length - 1 && at >= lens[k]) at -= lens[k++];
     const target = (k + dir + order.length) % order.length;
     const startOf = i => lens.slice(0, i).reduce((x, y) => x + y, 0);
-    const shift = startOf(target) - (startOf(k) + at);
+    const shift = startOf(target) - startOf(k);
     r.origin -= r.clock ? shift : shift * beatMs();
     r.cur = null;
 }
@@ -1070,9 +1050,17 @@ function tickPlayer() {
  * that bar isn't documented, so the first pass measures it: a clock that starts with "playing"
  * includes the count-in (start the chords a bar in), one that starts a bar later doesn't.
  */
+/* Input is ignored while recording, so releases of anything held now would never arrive. */
+function letGoForRecording() {
+    if (st.heldStep >= 0) { st.heldStep = -1; ownVolumeKnob(false); }
+    st.del = false; st.loopHeld = false; st.loopPicks = []; st.mute = false;
+    if (st.trackHeld >= 0) trackUp(st.trackHeld);
+}
+
 function startBounce() {
     const order = playOrder();
     if (!order.length) { toast('RECORD', 'CAPTURE OR SAVE CHORDS'); return; }
+    letGoForRecording();
     st.player = null;
     stopHeld();
     allNotesOff();
@@ -1090,6 +1078,7 @@ function startBounce() {
  * Play again stops it.
  */
 function startLive() {
+    letGoForRecording();
     st.player = null;
     stopHeld();
     allNotesOff();
@@ -1103,8 +1092,17 @@ function stopLive() {
     const l = st.liveTake;
     stopHeld();
     allNotesOff();
-    if (l.stage !== 'rec') { st.liveTake = null; toast('RECORDING', 'CANCELLED'); return; }
-    l.stage = 'ending'; l.at = Date.now() + 200;
+    if (l.stage === 'rec' && l.started) { l.stage = 'ending'; l.at = Date.now() + 200; return; }
+    undoArm(l.stage === 'rec' || l.stage === 'running');
+    st.liveTake = null;
+    requestSelect();
+    toast('RECORDING', 'CANCELLED');
+}
+
+/* Cancelled before or while recording: stop Move if it runs (or counts in), else take Record off if it was pressed. */
+function undoArm(recPressed) {
+    if (st.movePlaying || clockBeat() >= 0) pressButton(CC_PLAY);
+    else if (recPressed) pressButton(CC_REC);
 }
 
 function tickLive() {
@@ -1148,7 +1146,7 @@ function endBounce(title, value) {
 }
 
 function cancelBounce() {
-    if (st.movePlaying) pressButton(CC_PLAY);
+    undoArm(['wait', 'running', 'play'].includes(st.bounce.stage));
     endBounce('RECORDING', 'CANCELLED');
 }
 
@@ -1319,14 +1317,13 @@ function trackDb(t) {
 
 function trackDown(t) {
     if (st.del) {
-        pressButton(CC_TRACK1 - t);
-        pressButton(CC_DELETE);
+        st.controlQueue.push(heldCC(CC_DELETE, 127), [0x0b, 0xb0, CC_TRACK1 - t, 127], [0x0b, 0xb0, CC_TRACK1 - t, 0], heldCC(CC_DELETE, 0));
         requestSelect();
         toast('DELETED T' + (t + 1) + ' CLIP', 'SHIFT+UNDO: BRING BACK');
         return;
     }
     if (st.mute) {
-        st.controlQueue.push([0x0b, 0xb0, CC_MUTE, 127], [0x0b, 0xb0, CC_TRACK1 - t, 127], [0x0b, 0xb0, CC_TRACK1 - t, 0], [0x0b, 0xb0, CC_MUTE, 0]);
+        st.controlQueue.push(heldCC(CC_MUTE, 127), [0x0b, 0xb0, CC_TRACK1 - t, 127], [0x0b, 0xb0, CC_TRACK1 - t, 0], heldCC(CC_MUTE, 0));
         toast('MUTE', 'TRACK ' + (t + 1));
         return;
     }
@@ -1555,6 +1552,7 @@ function toggleKeyLock() {
 }
 
 function togglePlayStyle() {
+    if (st.rootDown || st.latched) stopHeld();
     cfg.strike = !cfg.strike;
     cfg.dirtyAt = Date.now();
     st.sel = null;
@@ -1588,6 +1586,14 @@ function routingKnob(i, delta) {
     toast(knobTitle(i + 4 * (st.shift ? 1 : 0)), [trackLabel(cfg.chordCh), bassTrackLabel()][i]);
 }
 
+/* A running arp on a pad chord follows the global knobs (a step's arp keeps its own settings). */
+function refreshArp() {
+    const a = st.arp;
+    if (!a || a.pad >= 32) return;
+    a.perf = { ...a.perf, rate: cfg.rate, spread: cfg.spread };
+    a.notes = arpNotes(a.base, a.perf);
+}
+
 function playKnob(k, delta) {
     if (k === 2 && !isArpMode()) {
         cfg.strumMs = clamp(cfg.strumMs + delta * 2, 5, 150);
@@ -1602,7 +1608,7 @@ function playKnob(k, delta) {
             if (was !== cfg.mode && (st.rootDown || st.latched)) { const l = st.latched; allNotesOff(); replayHeld(); st.latched = l; }
         }
         else if (k === 1) cfg.beats = cycle(STEP_BEATS, memBeats(null), dir);
-        else if (k === 2) cfg.rate = clamp(cfg.rate + dir, 0, RATES.length - 1);
+        else if (k === 2) { cfg.rate = clamp(cfg.rate + dir, 0, RATES.length - 1); refreshArp(); }
         else if (k === 3) {
             cfg.sound = clamp(cfg.sound + dir, 0, SOUNDS.length - 1);
             if (cfg.sound !== S_HOLD && st.latched) stopHeld();
@@ -1615,7 +1621,7 @@ function playKnob(k, delta) {
         }
         else if (k === 6) {
             cfg.spread = clamp(cfg.spread + dir, 0, SPREADS.length - 1);
-            if (st.arp) st.arp.notes = arpNotes(st.arp.base, st.arp.perf);
+            if (st.arp) refreshArp();
             else replayHeld();
         }
         else if (k === 7) cfg.feel = clamp(cfg.feel + dir, 0, 10);
@@ -1671,7 +1677,7 @@ function stepParams(m) {
 
 function wheel(dir) {
     if (st.heldStep >= 0) { turnStep(st.heldStep, dir); return; }
-    if (st.rootDown && st.rootPad < 16) {
+    if (st.rootDown && (st.rootPad < 16 || (cfg.strike && st.rootPad >= 24 && st.rootPad < 32))) {
         st.voicing = clamp(st.voicing + dir, -4, 6);
         replayHeld();
         return;
@@ -1777,15 +1783,17 @@ function updateLeds() {
         ledShown[i] = c;
         sent++;
     }
-    if (sent < LEDS_PER_TICK) buttonLed(CC_LOOP, st.range || st.loopHeld ? COL.loop : COL.off);
-    if (sent < LEDS_PER_TICK) buttonLed(CC_PLAY, st.player && !st.player.waiting ? COL.held : COL.off);
+    if (sent < LEDS_PER_TICK) sent += buttonLed(CC_LOOP, st.range || st.loopHeld ? COL.loop : COL.off);
+    if (sent < LEDS_PER_TICK) sent += buttonLed(CC_PLAY, st.player && !st.player.waiting ? COL.held : COL.off);
     for (let t = 0; t < 4 && sent < LEDS_PER_TICK; t++)
-        buttonLed(CC_TRACK1 - t, t === st.trackHeld ? COL.white : t === cfg.chordCh ? COL.maj : cfg.bass && !bassOnChords() && t === cfg.bassCh ? COL.min : COL.off);
-    if (sent < LEDS_PER_TICK) buttonLed(CC_MENU, st.page !== P_PLAY ? COL.white : COL.off);
-    if (sent < LEDS_PER_TICK) buttonLed(CC_REC, st.bounce || st.liveTake ? COL.rec : COL.off);
+        sent += buttonLed(CC_TRACK1 - t, t === st.trackHeld ? COL.white : t === cfg.chordCh ? COL.maj : cfg.bass && !bassOnChords() && t === cfg.bassCh ? COL.min : COL.off);
+    if (sent < LEDS_PER_TICK) sent += buttonLed(CC_MENU, st.page !== P_PLAY ? COL.white : COL.off);
+    if (sent < LEDS_PER_TICK) sent += buttonLed(CC_REC, st.bounce || st.liveTake ? COL.rec : COL.off);
 }
 
 /* ---------- display ---------- */
+
+const BLACK_KEYS = [1, 3, 6, 8, 10];
 
 function drawBig(text, y) {
     if (bigFont) set_font(BIG_FONT);
@@ -1835,14 +1843,19 @@ function drawPage(page) {
     print(0, 55, st.name + '  MENU: NEXT', 1);
 }
 
+function liveLabel(l) {
+    if (l.stage === 'rec') return l.started ? 'REC LIVE' : 'COUNT-IN';
+    return { stop: 'STOPPING', select: 'SELECTING', arm: 'ARMING', running: 'STARTING', ending: 'SAVING' }[l.stage];
+}
+
 function headline() {
     const b = st.bounce;
     if (b) {
         const pass = b.passes[b.pass];
-        const what = { stop: 'STOPPING', select: 'SELECTING', arm: 'ARMING', wait: 'WAITING', play: 'REC', after: 'SAVING' }[b.stage];
+        const what = { stop: 'STOPPING', select: 'SELECTING', arm: 'ARMING', wait: 'WAITING', running: 'STARTING', play: 'REC', after: 'SAVING' }[b.stage];
         return what + ' ' + pass.label + ' T' + (pass.track + 1);
     }
-    if (st.liveTake) return (st.liveTake.stage === 'rec' ? (st.movePlaying ? 'REC LIVE' : 'COUNT-IN') : 'ARMING') + ' T' + (st.liveTake.track + 1);
+    if (st.liveTake) return liveLabel(st.liveTake) + ' T' + (st.liveTake.track + 1);
     if (st.player) return st.player.waiting ? 'WAITING' : 'PLAYING';
     return keyLabel() + (cfg.keyLock ? '' : ' FREE') + (cfg.strike ? ' PICK' : '');
 }
@@ -1875,7 +1888,7 @@ function draw() {
     const y = 40;
     for (let m = 36; m < 96; m++) {
         const x = (4 + (m - 36) * 2) | 0;
-        const black = [1, 3, 6, 8, 10].includes(m % 12);
+        const black = BLACK_KEYS.includes(m % 12);
         if (m % 12 === 0) fill_rect(x, y - 3, 1, 2, 1);
         if (st.notes.includes(m)) fill_rect(x, y, 2, 7, 1);
         else if (st.bassOn && m === st.bassNote) fill_rect(x, y + 4, 2, 3, 1);
@@ -1986,7 +1999,7 @@ globalThis.onMidiMessageInternal = function (data) {
     else if (d1 === CC_REC && press) { if (st.liveTake) stopLive(); else if (st.shift) startBounce(); else startLive(); }
     else if (d1 === CC_LEFT || d1 === CC_RIGHT) { if (press) navigate(d1 === CC_RIGHT ? 1 : -1); else navigateUp(); }
     else if (d1 === CC_UP || d1 === CC_DOWN) { if (press) plusMinusDown(d1 === CC_UP ? 1 : -1); else plusMinusUp(); }
-    else if (d1 === CC_VOLUME && st.heldStep >= 0) stepKnob(st.heldStep, 4, decodeDelta(d2));
+    else if (d1 === CC_VOLUME && st.heldStep >= 0 && st.mems[st.heldStep]) stepKnob(st.heldStep, 4, decodeDelta(d2));
     else if (d1 === CC_JOG) {
         const d = decodeDelta(d2);
         if (d) wheel(Math.sign(d));
