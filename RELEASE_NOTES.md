@@ -36,6 +36,7 @@ The knobs mean the same thing whether or not you hold a step. **Hold Menu** to s
 
 - Chord colours combine one per kind (a sus/dim/aug, a 7th or 6th, and add9) instead of stacking: tap 7 then Maj7 and you get maj7.
 - A colour tapped while holding a chord stays on it, so you can strum it; the strum plate stays on the last chord after you let go.
+- Holding a colour and then pressing a chord plays it in that colour, also in Hold while another chord is still ringing.
 - Changing a held chord's colour keeps the velocity you played it with, and saved steps keep their velocity.
 - Loop range changes while playing land on the next bar.
 - Play follows Move's clock even when Schwung's playing flag gets stuck; count-in is timed from the Record press.

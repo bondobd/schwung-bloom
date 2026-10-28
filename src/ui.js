@@ -101,6 +101,7 @@ const st = {
     tempo: 120, beatsPerBar: 4, tracks: [],
     heldTypes: [],              // type-pad columns in press order
     stuckTypes: [],             // type pads tapped while a chord was held: they stay on that chord
+    typesDown: [],              // type pads under a finger, in press order
     rootPad: -1, rootDown: false, latched: false, rootVel: 100,
     notes: [], bassNote: -1, name: '--', prev: null, cur: null,
     last: null,                 // last chord played, for Shift+step
@@ -615,8 +616,9 @@ function renderInRegister(m) {
 }
 
 function playChordPad(i, vel) {
-    if (st.latched && i === st.rootPad) { stopHeld(); return; }
-    if (i !== st.rootPad) st.stuckTypes = [];
+    if (st.latched && i === st.rootPad && !st.typesDown.length) { stopHeld(); return; }
+    /* A colour still held down carries over to the next chord, even one it was tapped onto the last. */
+    if (i !== st.rootPad) { st.stuckTypes = []; st.heldTypes = st.typesDown.slice(); }
     const p = padInfo(i >> 3, i & 7);
     if (cfg.keyLock && !p.inKey) return;
     const t = heldTypeValues();
@@ -1292,6 +1294,7 @@ function padDown(i, vel) {
     const row = i >> 3, col = i & 7;
     if (row === 3 && cfg.strike) { strike(i, vel); return; }
     if (row === 3) {
+        st.typesDown = st.typesDown.filter(c => c !== col).concat(col);
         /* Tapped while a chord is held (or ringing in Hold): the colour stays on it, tap again to take it off. */
         if (st.rootDown && st.rootPad < 16) {
             st.stuckTypes = st.stuckTypes.includes(col) ? st.stuckTypes.filter(c => c !== col) : withType(st.stuckTypes, col);
@@ -1322,6 +1325,7 @@ function padUp(i) {
     const row = i >> 3, col = i & 7;
     if (row === 3 && cfg.strike) { releaseChord(i); return; }
     if (row === 3) {
+        st.typesDown = st.typesDown.filter(c => c !== col);
         if (!st.heldTypes.includes(col)) return;
         st.heldTypes = st.heldTypes.filter(c => c !== col);
         if (st.rootDown && !st.latched) replayHeld();
@@ -1579,6 +1583,7 @@ function togglePlayStyle() {
     st.armNotes = [];
     st.heldTypes = [];
     st.stuckTypes = [];
+    st.typesDown = [];
 }
 
 /* ---------- Settings: what is set once per Set, in a list Menu opens ---------- */
