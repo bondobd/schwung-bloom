@@ -44,4 +44,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/bloom-module.tar.gz
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true

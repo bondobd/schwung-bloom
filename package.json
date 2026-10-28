@@ -1,6 +1,6 @@
 {
     "name": "schwung-bloom",
-    "version": "0.10.1",
+    "version": "0.11.0",
     "description": "Bloom: an Orchid-style chord instrument for Ableton Move, built on Schwung",
     "private": true,
     "type": "module",
