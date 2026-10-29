@@ -126,7 +126,7 @@ const st = {
     menu: null,                 // {at, shown, used}: Menu held; the knob map shows after a moment
     settings: null,             // {i, edit}: the Settings list a tap on Menu opens
     strumDown: false,           // the last strum's direction, for ALTERNATE
-    moveRoot: -1, moveScaleName: '', keyOwn: false, moveValid: false,  // the Set's key, and whether Bloom overrides it
+    moveRoot: -1, moveScaleName: '', keyOwn: false, moveUnread: false,  // the Set's key, and whether Bloom overrides it
     inModes: [], selTrack: -1,  // per track: 'auto' | 'none' | channel 0-15, from the Set file
     controlQueue: [], controlAt: 0, echoes: [],
     out: [], live: new Set(), recheck: [],  // paced MIDI out, notes Move is sounding, note-offs to repeat
@@ -334,7 +334,7 @@ function requestSelect() { st.select = { target: cfg.chordCh, tries: 0, at: 0 };
 
 function tickSelect() {
     const s = st.select;
-    if (st.bounce || st.liveTake || st.trackHeld >= 0 || st.mute || s.target < 0 || !chordRoute().auto || !st.moveValid) return;
+    if (st.bounce || st.liveTake || st.trackHeld >= 0 || st.mute || s.target < 0 || !chordRoute().auto || st.moveUnread) return;
     const now = Date.now();
     if (selectedTrack() === s.target || s.tries >= 3 || now < s.at) return;
     pressButton(CC_TRACK1 - s.target);
@@ -618,9 +618,9 @@ function renderInRegister(m) {
 function playChordPad(i, vel) {
     if (st.latched && i === st.rootPad && !st.typesDown.length) { stopHeld(); return; }
     /* A colour still held down carries over to the next chord, even one it was tapped onto the last. */
-    if (i !== st.rootPad) { st.stuckTypes = []; st.heldTypes = st.typesDown.slice(); }
     const p = padInfo(i >> 3, i & 7);
     if (cfg.keyLock && !p.inKey) return;
+    if (i !== st.rootPad) { st.stuckTypes = []; st.heldTypes = st.typesDown.slice(); }
     const t = heldTypeValues();
     const m = { pc: p.pc, baseQ: p.q, q: t.q || p.q, ext: t.ext, oct: st.oct, voicing: st.voicing, open: false, bassDeg: 0 };
     if (cfg.smooth && st.prev) m.voicing = smoothVoicing(m, st.prev);
@@ -999,12 +999,13 @@ function startPreview() {
  */
 function playButton(whole) {
     if (st.movePlaying || st.player) {
-        if (st.movePlaying) pressButton(CC_PLAY);
+        if (st.movePlaying) { pressButton(CC_PLAY); if (!st.clock) st.movePlaying = false; }
         stopPlayer();
         return;
     }
     if (!startPlayer({ linked: true, whole, waiting: true, startBy: Date.now() + 1500 })) return;
     pressButton(CC_PLAY);
+    if (!st.clock) st.movePlaying = true;
     toast(whole ? 'WHOLE PROGRESSION' : 'PLAY', st.range && !whole ? 'STEPS ' + (st.range.a + 1) + ' TO ' + (st.range.b + 1) : memOrder().length + ' CHORDS');
 }
 
@@ -1046,9 +1047,10 @@ function startRangeOnBar(p) {
  */
 const MOVE_PLAYING = 1, MOVE_STOPPED = 0;
 
+/* Null when there is no telling: Bloom then goes by its own Play presses. */
 function transportPlaying(mi) {
     if (mi.playing === MOVE_STOPPED) return false;
-    if (!st.clock) return mi.playing === MOVE_PLAYING;
+    if (!st.clock) return mi.playing === MOVE_PLAYING ? true : null;
     if (clockBeat() >= 0) return true;
     return Date.now() - st.recAt < 2 * st.beatsPerBar * beatMs() + 500;
 }
@@ -1057,7 +1059,7 @@ function followTransport() {
     if (typeof host_get_move_info !== 'function') return;
     const mi = host_get_move_info();
     if (!mi || !mi.valid) return;
-    const playing = transportPlaying(mi);
+    const playing = transportPlaying(mi) ?? st.movePlaying;
     if (playing && !st.movePlaying) st.playingSince = Date.now();
     const p = st.player;
     if (p && !st.bounce) {
@@ -1092,6 +1094,7 @@ function tickPlayer() {
 function letGoForRecording() {
     if (st.heldStep >= 0) { st.heldStep = -1; ownVolumeKnob(false); }
     st.del = false; st.loopHeld = false; st.loopPicks = []; st.mute = false;
+    st.typesDown = []; st.heldTypes = [];
     if (st.trackHeld >= 0) trackUp(st.trackHeld);
 }
 
@@ -1300,7 +1303,10 @@ function padDown(i, vel) {
         st.typesDown = st.typesDown.filter(c => c !== col).concat(col);
         /* Tapped while a chord is held (or ringing in Hold): the colour stays on it, tap again to take it off. */
         if (st.rootDown && st.rootPad < 16) {
-            st.stuckTypes = st.stuckTypes.includes(col) ? st.stuckTypes.filter(c => c !== col) : withType(st.stuckTypes, col);
+            if (st.stuckTypes.includes(col)) {
+                st.stuckTypes = st.stuckTypes.filter(c => c !== col);
+                st.typesDown = st.typesDown.filter(c => c !== col);
+            } else st.stuckTypes = withType(st.stuckTypes, col);
         } else st.heldTypes = st.heldTypes.filter(c => c !== col).concat(col);
         replayHeld();
         return;
@@ -1744,8 +1750,8 @@ function readMoveInfo() {
     if (typeof host_get_move_info !== 'function') return;
     const mi = host_get_move_info();
     /* While Schwung is not reading Move, the last selection Bloom saw may no longer be true. */
-    st.moveValid = !!(mi && mi.valid);
-    if (!st.moveValid) { st.selTrack = -1; st.tracks = st.tracks.map(t => t && { ...t, selected: 255 }); return; }
+    st.moveUnread = !!mi && !mi.valid;
+    if (!mi || !mi.valid) { st.selTrack = -1; st.tracks = st.tracks.map(t => t && { ...t, selected: 255 }); return; }
     const root = mi.rootNote >= 0 && mi.rootNote < 12 ? mi.rootNote : 0;
     const scale = scaleFor(mi.scale) || MAJOR;
     const scaleName = scaleFor(mi.scale) ? String(mi.scale).toUpperCase() : 'MAJOR';

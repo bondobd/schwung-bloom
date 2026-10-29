@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const SET_ID = '6b99d1a6-371b-420e-9684-ae71874b8697';
 
-export async function loadBloom({ unknownTransport = false, recArmsOnly = false, staleSelected = -1, echo = false, key = 0, scale = 'Major', tempo = 120, settings = {}, inputModes = ['auto', 'auto', 'auto', 'auto'], countIn = false } = {}) {
+export async function loadBloom({ noInfo = false, unknownTransport = false, recArmsOnly = false, staleSelected = -1, echo = false, key = 0, scale = 'Major', tempo = 120, settings = {}, inputModes = ['auto', 'auto', 'auto', 'auto'], countIn = false } = {}) {
     const dir = mkdtempSync(join(tmpdir(), 'bloom-'));
     const ui = readFileSync(join(here, '../src/ui.js'), 'utf8')
         .replace("'/data/UserData/schwung/shared/input_filter.mjs'", JSON.stringify(pathToFileURL(join(here, 'stubs/input_filter.mjs')).href))
@@ -51,7 +51,7 @@ export async function loadBloom({ unknownTransport = false, recArmsOnly = false,
         return true;
     };
     /* As Schwung publishes it: 0/1 flags, 255 when unknown (the transport on firmware it does not know). */
-    globalThis.host_get_move_info = () => move.invalid ? { valid: 0, playing: 255, selectedTrack: -1, tracks: [0, 1, 2, 3].map(() => ({ selected: 255 })) } : ({
+    globalThis.host_get_move_info = () => noInfo ? null : move.invalid ? { valid: 0, playing: 255, selectedTrack: -1, tracks: [0, 1, 2, 3].map(() => ({ selected: 255 })) } : ({
         valid: 1, playing: unknownTransport ? 255 : move.infoPlaying ?? (move.playing ? 1 : 0), rootNote: move.key, scale: move.scale, tempo: move.tempo, tsUpper: 4,
         selectedTrack: staleSelected >= 0 ? staleSelected : move.selected,
         tracks: [0, 1, 2, 3].map(i => ({ selected: i === (staleSelected >= 0 ? staleSelected : move.selected) ? 1 : 0 }))
